@@ -488,7 +488,7 @@ Section
 	
 	
 	; Create list of mods
-	nsArray::Split modfolders @airwolf|@ECP|@ffsx85|@ffsx2007|@GRAA|@JF|@MCM-SLX|@OFrP_Mod|@wgl5|@WW2_MP|@ww4mod25|bin|finmod|Res|x_vte|ffur2006|@TuPaS |
+	nsArray::Split modfolders @airwolf|@ECP|@ffsx85|@ffsx2007|@GRAA|@JF|@MCM-SLX|@OFrP_Mod|@wgl5|@WW2_MP|@ww4mod25|bin|finmod|Res|x_vte|ffur2006|CSLA|@TuPaS |
 	
 	; Replace configs and resources in the modfolders
 	${ForEachIn} modfolders $key $value
@@ -621,6 +621,10 @@ Section
 	IfFileExists $INSTDIR\@TuPaS 0 +3
 	SetOutPath "$INSTDIR\@TuPaS\bin\"
 	File "@TuPaS\Resource.cpp"
+
+	IfFileExists $INSTDIR\CSLA 0 +3
+	SetOutPath "$INSTDIR\CSLA\bin\"
+	File "CSLA\Resource.cpp"
 	
 	
 	
