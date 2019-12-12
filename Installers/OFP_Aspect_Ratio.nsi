@@ -1,4 +1,4 @@
-; NSIS Script for OFP Aspect Ratio pack v2.06
+; NSIS Script for OFP Aspect Ratio pack v2.07
 
 
 ;------Header---------------
@@ -31,8 +31,8 @@ VIAddVersionKey "CompanyName" "ofp-faguss.com"
 VIAddVersionKey "LegalTrademarks" "Public Domain"
 VIAddVersionKey "LegalCopyright" "Public Domain"
 VIAddVersionKey "FileDescription" "Install OFP Aspect Ratio package"
-VIAddVersionKey "FileVersion" "2.0.6.0"
-VIProductVersion "2.0.6.0"
+VIAddVersionKey "FileVersion" "2.0.7.0"
+VIProductVersion "2.0.7.0"
 
 
 
@@ -76,7 +76,7 @@ OutFile "ofp_aspect_ratio.exe"
 !define MUI_ICON "img\orange-install.ico"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "img\Installer_Welcome.bmp"
 
-!define MUI_WELCOMEPAGE_TITLE "OFP Aspect Ratio v2.06"
+!define MUI_WELCOMEPAGE_TITLE "OFP Aspect Ratio v2.07"
 !define MUI_WELCOMEPAGE_TEXT "This will update screen format for the$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\n$\tArmA: Resistance 2.01$\n$\n$\nFwatch 1.16 included."
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "img\Installer_Header.bmp"
