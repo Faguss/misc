@@ -434,7 +434,7 @@ Section
 
 	; Default values for string variables
 	StrCpy $finishpagetext ""
-	StrCpy $parameters " -nosplash -gamespy=master.ofpisnotdead.com -sortmissions"
+	StrCpy $parameters " -nosplash -gamespy=master.ofpisnotdead.com "
 	StrCpy $runtext "Launch game with the Fwatch"
 	StrCpy $exename "fwatch.exe"
   
@@ -646,7 +646,7 @@ Section
 	${WordFind} $INSTDIR "SteamApps\common" "E+1{" $R0
 	IfErrors notfound found
 		found:
-			StrCpy $parameters "$parameters -steam"
+			StrCpy $parameters "-steam $parameters"
 			StrCpy $runtext "Launch game with Steam"
 			GoTo allDone
 		notfound:
@@ -658,7 +658,7 @@ Section
   IfFileExists "$INSTDIR\operationflashpointbeta.exe" allDone 0
   IfFileExists "$INSTDIR\ColdWarAssault.exe" allDone 0
   IfFileExists "$INSTDIR\ArmAResistance.exe" allDone 0
-    StrCpy $parameters "$parameters -nolaunch "
+    StrCpy $parameters "-nolaunch $parameters "
     StrCpy $runtext "Launch Fwatch"
     StrCpy $finishpagetext "$finishpagetext$\n$\nYou will have to start the game manually."
 
