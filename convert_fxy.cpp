@@ -2,6 +2,7 @@
 #include <cstring>
 #include <cstdlib>
 
+//https://community.bistudio.com/wiki/FXY_File_Format
 struct FxyEntry {
 	unsigned short CharCode;
 	unsigned short PaaFileNumber;
