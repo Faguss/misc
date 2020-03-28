@@ -77,12 +77,16 @@ string GetIsland(string file_name, string &mission_name)
 {
 	string file_extension = file_name.substr( file_name.find_last_of('.')+1 );
 	
-	size_t lastDot       = file_name.find_last_of('.');
-	size_t secondLastDot = file_name.find_last_of('.', lastDot-1);
-	
-	if (lastDot!=string::npos  &&  secondLastDot!=string::npos) {
-		file_extension = file_name.substr( secondLastDot+1, lastDot-secondLastDot-1 );
-		mission_name   = file_name.substr( 0, secondLastDot );
+	if (Equals(file_extension,"pbo")) {
+		size_t lastDot       = file_name.find_last_of('.');
+		size_t secondLastDot = file_name.find_last_of('.', lastDot-1);
+		
+		if (lastDot!=string::npos  &&  secondLastDot!=string::npos) {
+			file_extension = file_name.substr( secondLastDot+1, lastDot-secondLastDot-1 );
+			mission_name   = file_name.substr( 0, secondLastDot );
+		}	
+	} else {
+		mission_name = file_name.substr( 0, file_name.find_last_of('.') );
 	}
 
 	return file_extension;
@@ -153,7 +157,7 @@ string simplify_mission_name(string str) {
 	str = ReplaceAll(str, "'", "");
 	
 	vector<string> words;
-	Tokenize(str, " _-0123456789@&=[]", words);
+	Tokenize(str, " _-0123456789@&=[].", words);
 	
 	if (words.size() == 0)
 		return str;
@@ -176,6 +180,7 @@ string simplify_mission_name(string str) {
 	words_to_ignore.push_back("ctf");
 	words_to_ignore.push_back("the");
 	words_to_ignore.push_back("bas");
+	words_to_ignore.push_back("REVIVE");
 	
 	for (int i=0; i<words.size(); i++) {
 		if (words[i].length() < 3)
@@ -201,7 +206,7 @@ string simplify_mission_name(string str) {
 
 
 int main()
-{
+{	
 	const int max_islands = 50;
 	vector<string> mission_list;
 	vector<string> island_list;
