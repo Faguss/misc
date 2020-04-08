@@ -1,4 +1,4 @@
-; NSIS Script for Set-Pos-In-Game installation v1.47
+; NSIS Script for Set-Pos-In-Game installation v1.49
 
 
 ;------Header---------------
@@ -8,8 +8,8 @@
 !include "WordFunc.nsh"
 
 SetCompressor /solid lzma
-ShowInstDetails nevershow
-RequestExecutionLevel user
+ShowInstDetails show
+RequestExecutionLevel admin
 ;BrandingText "NSIS script by Faguss (ofp-faguss.com)"
 InstallDir $INSTDIR
 ;InstallDirRegKey HKLM "Software\Codemasters\Operation Flashpoint" "MAIN"
@@ -24,8 +24,8 @@ VIAddVersionKey "CompanyName" "ofp-faguss.com"
 VIAddVersionKey "LegalTrademarks" "Public Domain"
 VIAddVersionKey "LegalCopyright" "Public Domain"
 VIAddVersionKey "FileDescription" "Install SPIG script"
-VIAddVersionKey "FileVersion" "1.4.7.0"
-VIProductVersion "1.4.7.0"
+VIAddVersionKey "FileVersion" "1.4.9.0"
+VIProductVersion "1.4.9.0"
 
 
 
@@ -36,20 +36,21 @@ Var finishpagetext
 Var parameters
 Var runtext
 Var exename
+Var cfgName
 
 ;------Customize------------
 
 Name "SPIG"
 OutFile "set-pos-in-game.exe"
 !define MUI_ICON "img\orange-install.ico"
-!define MUI_WELCOMEFINISHPAGE_BITMAP "img\Installer_Welcome2.bmp"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "img\Installer_Welcome.bmp"
 
-!define MUI_WELCOMEPAGE_TITLE "Set-Pos-In-Game v1.47"
-!define MUI_WELCOMEPAGE_TEXT "This will install Set-Pos-In-Game script for$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\n$\nFwatch 1.15 included."
+!define MUI_WELCOMEPAGE_TITLE "Set-Pos-In-Game v1.49"
+!define MUI_WELCOMEPAGE_TEXT "This will install Set-Pos-In-Game script for$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\tArmA: Cold War Assault 1.99$\n$\n$\nFwatch 1.16 included."
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "img\Installer_Header2.bmp"
 !define MUI_HEADERIMAGE_RIGHT
-!define MUI_DIRECTORYPAGE_TEXT_TOP "Make sure this path leads to the game directory.$\n$\nGame must have been run at least once."
+!define MUI_DIRECTORYPAGE_TEXT_TOP "Make sure this path leads to the game directory.$\n$\nGame should have been run at least once."
 ;!define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN $exename
 !define MUI_FINISHPAGE_RUN_PARAMETERS $parameters
@@ -78,6 +79,8 @@ OutFile "set-pos-in-game.exe"
 
 ; This reads CWA reg key if OFP is not present
 Function .onInit
+	StrCpy $cfgName ""
+
 	${If} $INSTDIR == ""
 		ReadRegStr $INSTDIR HKLM "SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Steam App 65790" "InstallLocation"
 	${EndIf}
@@ -100,13 +103,27 @@ Function finishpageaction
     SetOutPath "$INSTDIR\"
 	StrCpy $9 "Fwatch.lnk"
 	
-	IfFileExists $INSTDIR\flashpoint.cfg 0 +2
-		StrCpy $9 "Fwatch OFP.lnk"
-	IfFileExists $INSTDIR\ColdWarAssault.cfg 0 +2
-		StrCpy $9 "Fwatch CWA.lnk"
-	
 	IfFileExists "$DESKTOP\$9" +2 0
 	CreateShortCut "$DESKTOP\$9" "$INSTDIR\$exename" "$parameters"
+FunctionEnd
+
+
+; Install directory must have configuration file
+Function .onVerifyInstDir
+	IfFileExists $INSTDIR\ArmAResistance.cfg 0 +3
+	StrCpy $cfgName "ArmAResistance.cfg"
+	Goto checkDone
+
+	IfFileExists $INSTDIR\ColdWarAssault.cfg 0 +3
+	StrCpy $cfgName "ColdWarAssault.cfg"
+	Goto checkDone
+	
+    IfFileExists $INSTDIR\flashpoint.cfg 0 +3
+	StrCpy $cfgName "flashpoint.cfg"
+	Goto checkDone
+	Abort		
+		
+	checkDone:
 FunctionEnd
 
 
@@ -211,22 +228,14 @@ Section
 	SetOutPath "$INSTDIR\"
 	File /r "data\*"
 	
-  IfFileExists $INSTDIR\flashpoint.cfg 0 +2
-	File "fwatch.exe"
-  IfFileExists $INSTDIR\ColdWarAssault.cfg 0 +3
-  	File "fwatchCWA.exe"
-	StrCpy $exename "fwatchCWA.exe"
-	
-	
-	
-	
 ; Check game executable ===========================================
 
 	; Check if this is Steam version
+	StrCmp $cfgName "ArmAResistance.cfg" notfound 0
 	${WordFind} $INSTDIR "SteamApps\common" "E+1{" $R0
 	IfErrors notfound found
 		found:
-			StrCpy $parameters "$parameters -steam"
+			StrCpy $parameters "-steam $parameters"
 			StrCpy $runtext "Launch game with Steam"
 			GoTo allDone
 		notfound:
@@ -237,6 +246,7 @@ Section
   IfFileExists "$INSTDIR\operationflashpoint.exe" allDone 0
   IfFileExists "$INSTDIR\operationflashpointbeta.exe" allDone 0
   IfFileExists "$INSTDIR\ColdWarAssault.exe" allDone 0
+  IfFileExists "$INSTDIR\ArmAResistance.exe" allDone 0
     StrCpy $parameters "$parameters -nolaunch "
     StrCpy $runtext "Launch Fwatch"
     StrCpy $finishpagetext "$finishpagetext$\n$\nYou will have to start the game manually."
