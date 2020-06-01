@@ -2,6 +2,7 @@
 // automatically resize them if texview 2007 and imagemagick is installed
 // by Faguss (ofp-faguss.com)
 
+#include <sstream>
 #include <windows.h>
 #include <fstream>
 #include <vector>
@@ -222,7 +223,7 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 						multiplier = height / width;
 
 					if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height) || multiplier > 8) {
-						convert_this_file = multiplier > 8;
+						convert_this_file = IsPowerOfTwo(width) && IsPowerOfTwo(height) && multiplier > 8;	// pal2pace will not open texture if size is not ^2
 						message           = Int2Str(width) + "x" + Int2Str(height);
 					}
 
@@ -253,6 +254,9 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 							int previous = next >> 1; // previous power of 2
 
 							*current = (next - *current) > (*current - previous) ? previous : next;
+							
+							if (*current < 2)
+								*current = 2;
 						}
 					}
 					
@@ -265,7 +269,8 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 							if (height / width > 8)
 								height = width * 8;
 						}
-											
+					
+					// Use pal2pace to convert to tga/png, resize with imagemagick and then convert back to paa						
 					string new_file_name = input_path + (!input_path.empty() ? "\\" : "") + current_file.substr(0, last_dot+1) + (is_alpha ? "tga" : "png");
 					
 					if (!program_paths[EXE_PAL2PACE].empty()) {
@@ -282,10 +287,9 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 							system(command_line.c_str());
 							message += " - automatically fixed";
 						} else {
-							message += " - must be manually converted";
+							message += " - tga must be manually converted with PAAtool";
 						}
 					}
-					
 				}
 				
 				if (!message.empty()) {
