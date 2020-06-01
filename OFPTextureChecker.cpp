@@ -1,14 +1,13 @@
-// Generate text file listing all the paa/pac files with incorrect mipmap size
+// Generate text file listing all the paa/pac files with incorrect size
+// automatically resize them if texview 2007 and imagemagick is installed
 // by Faguss (ofp-faguss.com)
 
-// https://community.bistudio.com/wiki/PAA_File_Format
-
-#include <sstream>
 #include <windows.h>
 #include <fstream>
 #include <vector>
 using namespace std;
 
+// List of valid paa types https://community.bistudio.com/wiki/PAA_File_Format
 unsigned short valid_signatures[] = {
 	0xFF01,
 	0xFF02,
@@ -20,10 +19,9 @@ unsigned short valid_signatures[] = {
 	0x8888,
 	0x8080
 };
+
 unsigned short valid_signatures_num = sizeof(valid_signatures) / sizeof(valid_signatures[0]);
-
 int texture_files_num = 0;
-
 vector<string> program_paths;
 
 enum PROGRAM_PATHS {
@@ -45,23 +43,23 @@ bool IsPowerOfTwo(unsigned short number) {
 // https://stackoverflow.com/questions/11635/case-insensitive-string-comparison-in-c#315463
 bool Equals(const string& a, const string& b) 
 {
-    unsigned int sz = a.size();
+	unsigned int sz = a.size();
 
-    if (b.size() != sz)
-        return false;
+	if (b.size() != sz)
+		return false;
 
-    for (unsigned int i = 0; i < sz; ++i)
-        if (tolower(a[i]) != tolower(b[i]))
-            return false;
+	for (unsigned int i = 0; i < sz; ++i)
+		if (tolower(a[i]) != tolower(b[i]))
+		return false;
 
-    return true;
+	return true;
 }
 
 string Int2Str(int num)
 {
-    ostringstream text;
-    text << num;
-    return text.str();
+	ostringstream text;
+	text << num;
+	return text.str();
 }
 
 string FormatError(int error)
@@ -242,19 +240,19 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 						unsigned short *current = sizelist[i];
 						
 						if (!IsPowerOfTwo(*current)) {
-                            int next = *current; 
-                        
-                            next--;
-                            next |= next >> 1;
-                            next |= next >> 2;
-                            next |= next >> 4;
-                            next |= next >> 8;
-                            next |= next >> 16;
-                            next++; // next power of 2
-                        
-                            int previous = next >> 1; // previous power of 2
-                        
-                            *current = (next - *current) > (*current - previous) ? previous : next;
+							int next = *current; 
+
+							next--;
+							next |= next >> 1;
+							next |= next >> 2;
+							next |= next >> 4;
+							next |= next >> 8;
+							next |= next >> 16;
+							next++; // next power of 2
+
+							int previous = next >> 1; // previous power of 2
+
+							*current = (next - *current) > (*current - previous) ? previous : next;
 						}
 					}
 					
