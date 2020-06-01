@@ -7,7 +7,6 @@
 #include <windows.h>
 #include <fstream>
 #include <vector>
-#include <iostream>
 using namespace std;
 
 unsigned short valid_signatures[] = {
@@ -95,7 +94,7 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 	HANDLE hFile;
 	WIN32_FIND_DATA FileInformation;
 	hFile = FindFirstFile(pattern.c_str(), &FileInformation);
-	
+
 	if (hFile == INVALID_HANDLE_VALUE) {
 		int errorCode = GetLastError();
 		container.push_back("Failed to list files in " + input_path + " - " + FormatError(errorCode));
@@ -104,23 +103,24 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 	
 	do {
 		string current_file = (string)FileInformation.cFileName;
-		
+
 		if (current_file != "."  &&  current_file != "..") {
+			bool is_dir     = FileInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 			size_t last_dot = current_file.find_last_of('.');
 			
-			if (last_dot == string::npos)
+			if (last_dot == string::npos && !is_dir)
 				continue;
 			
 			string file_extension       = current_file.substr(last_dot+1);
 			string path_to_current_file = input_path + (!input_path.empty() ? "\\" : "") + current_file;
 
-			if (FileInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+			if (is_dir)
 				browse_directory(path_to_current_file, input_pattern, container);
-			}
 			else 
 			if (Equals(file_extension,"paa") || Equals(file_extension,"pac")) {
 				texture_files_num++;
 				
+				bool convert_this_file          = false;
 				bool is_valid_signature         = false;
 				unsigned short signature        = 0;
 				char tagg[5]                    = "";
@@ -135,7 +135,6 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 				FILE *file     = fopen(path_to_current_file.c_str(), "rb");
 				
 				if (file) {
-					
 					fseek(file, 0, SEEK_END);
 					int file_size = ftell(file);
 					fseek(file, 0, SEEK_SET);
@@ -224,47 +223,76 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 					else
 						multiplier = height / width;
 
-					if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height) || multiplier > 8)
-						message = Int2Str(width) + "x" + Int2Str(height);
+					if (!IsPowerOfTwo(width) || !IsPowerOfTwo(height) || multiplier > 8) {
+						convert_this_file = multiplier > 8;
+						message           = Int2Str(width) + "x" + Int2Str(height);
+					}
 
 					end_parsing:
 					fclose(file);
 				} else
 					message = (string)strerror(errno);
 
-				if (!message.empty()) {
-					message = path_to_current_file + " - " + message;
-					container.push_back(message);
+				if (convert_this_file) {
+					unsigned short *sizelist[2] = {&width, &height};
 					
-					// TO DO LATER
-					if (multiplier <= 8)
-						continue;
+					// Find new dimensions
+					// https://stackoverflow.com/questions/4398711/round-to-the-nearest-power-of-two/4398799
+					for (int i=0; i<2; i++) {
+						unsigned short *current = sizelist[i];
+						
+						if (!IsPowerOfTwo(*current)) {
+                            int next = *current; 
+                        
+                            next--;
+                            next |= next >> 1;
+                            next |= next >> 2;
+                            next |= next >> 4;
+                            next |= next >> 8;
+                            next |= next >> 16;
+                            next++; // next power of 2
+                        
+                            int previous = next >> 1; // previous power of 2
+                        
+                            *current = (next - *current) > (*current - previous) ? previous : next;
+						}
+					}
 					
+					// Correct aspect ratio
+					if (width > height) {
+						if (width / height > 8)
+							width = height * 8;
+					} else
+						if (height > width) {
+							if (height / width > 8)
+								height = width * 8;
+						}
+											
 					string new_file_name = input_path + (!input_path.empty() ? "\\" : "") + current_file.substr(0, last_dot+1) + (is_alpha ? "tga" : "png");
 					
 					if (!program_paths[EXE_PAL2PACE].empty()) {
 						string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + path_to_current_file + "\" \"" + new_file_name + "\"\"";
-						//string command_line  = "\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\"";
-						cout << command_line << endl;
 						system(command_line.c_str());
 					}
 					
-					if (!is_alpha && !program_paths[EXE_MAGICK].empty()) {
-						unsigned short new_width = width > height ? height * 8 : width;
-						unsigned short new_height = height > width ? width * 8 : height;
-						
-						cout << endl << new_width << "x" << new_height << endl;
-						
-						string command_line  = "\"\"" + program_paths[EXE_MAGICK] + "\\magick.exe\" \"" + new_file_name + "\" -resize " + Int2Str(new_width) + "x" + Int2Str(new_height) + "! \"" + new_file_name + "\"\"";
-						cout << command_line << endl;
+					if (!program_paths[EXE_MAGICK].empty()) {
+						string command_line = "\"\"" + program_paths[EXE_MAGICK] + "\\magick.exe\" \"" + new_file_name + "\" -resize " + Int2Str(width) + "x" + Int2Str(height) + "! \"" + new_file_name + "\"\"";
 						system(command_line.c_str());
 						
-						if (!program_paths[EXE_PAL2PACE].empty()) {
+						if (!is_alpha && !program_paths[EXE_PAL2PACE].empty()) {
 							string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + new_file_name + "\" \"" + path_to_current_file + "\"\"";
-							cout << command_line << endl;
 							system(command_line.c_str());
+							message += " - automatically fixed";
+						} else {
+							message += " - must be manually converted";
 						}
 					}
+					
+				}
+				
+				if (!message.empty()) {
+					message = path_to_current_file + " - " + message;
+					container.push_back(message);
 				}
 			}
 		}
