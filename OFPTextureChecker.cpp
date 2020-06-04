@@ -8,21 +8,34 @@
 #include <vector>
 using namespace std;
 
-// List of valid paa types https://community.bistudio.com/wiki/PAA_File_Format
+// List of valid paa types for OFP
+// https://community.bistudio.com/wiki/PAA_File_Format
 unsigned short valid_signatures[] = {
 	0xFF01,
+	0x4444,
+	0x1555,
+	0x8080
+};
+
+unsigned short invalid_signatures[] = {
 	0xFF02,
 	0xFF03,
 	0xFF04,
 	0xFF05,
-	0x4444,
-	0x1555,
-	0x8888,
-	0x8080
+	0x8888
 };
 
-unsigned short valid_signatures_num = sizeof(valid_signatures) / sizeof(valid_signatures[0]);
-int texture_files_num = 0;
+string invalid_signatures_name[] = {
+	"DXT2 : Oxygen 2 Only",
+	"DXT3",
+	"DXT4 : Oxygen 2 Only",
+	"DXT5 : Arma1 & 2 Only",
+	"RGBA 8:8:8:8 : Oxygen 2 Only"
+};
+
+unsigned short valid_signatures_num   = sizeof(valid_signatures) / sizeof(valid_signatures[0]);
+unsigned short invalid_signatures_num = sizeof(invalid_signatures) / sizeof(invalid_signatures[0]);
+int texture_files_num                 = 0;
 vector<string> program_paths;
 
 enum PROGRAM_PATHS {
@@ -149,13 +162,29 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 					for(int i=0; i<valid_signatures_num && !is_valid_signature; i++)
 						if (signature == valid_signatures[i])
 							is_valid_signature = true;
-					
+
+					// Some BI textures do not have a signature but immediately start with taggs
 					if (!is_valid_signature) {
 						fseek(file, 0, SEEK_SET);
 						fread(&tagg, 4, 1, file);
-						
+
 						if (strcmp(tagg,"GGAT") != 0) {
-							message = "invalid signature";
+							message   += "invalid signature ";
+							bool found = false;
+							
+							for (int j=0; j<invalid_signatures_num; j++)
+								if (signature == invalid_signatures[j]) {
+									message += invalid_signatures_name[j];
+									found = true;
+									break;
+								}
+									
+							if (!found) {
+								char tagg_hex[8] = "";
+								sprintf(tagg_hex, "0x%x", signature);
+								message += (string)tagg_hex;
+							}
+
 							goto end_parsing;
 						}
 					} else
@@ -168,26 +197,16 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 							goto end_parsing;
 						}
 
-						fread(&tagg_name, 4, 1, file);
+						fseek(file, 4, SEEK_CUR);
+						unsigned long data_len = 0;
+						fread(&data_len, 4, 1, file);
 
-						// Check if texture has alpha channel
-						if (strcmp(tagg_name,"GALF") == 0) {
-							fseek(file, 4, SEEK_CUR);
-							unsigned long transparency = 0;
-							fread(&transparency, 4, 1, file);
-							is_alpha = transparency != 0;
-						} else {
-							unsigned long data_len = 0;
-							fread(&data_len, 4, 1, file);
-	
-							if (ftell(file)+data_len+4 > file_size) {
-								message = "invalid tagg data len";
-								goto end_parsing;
-							}
-	
-							fseek(file, data_len, SEEK_CUR);
+						if (ftell(file)+data_len+4 > file_size) {
+							message = "invalid tagg data len";
+							goto end_parsing;
 						}
-						
+
+						fseek(file, data_len, SEEK_CUR);
 						fread(&tagg, 4, 1, file);
 					}
 
@@ -270,24 +289,34 @@ int browse_directory(string input_path, string input_pattern, vector<string> &co
 								height = width * 8;
 						}
 					
-					// Use pal2pace to convert to tga/png, resize with imagemagick and then convert back to paa						
-					string new_file_name = input_path + (!input_path.empty() ? "\\" : "") + current_file.substr(0, last_dot+1) + (is_alpha ? "tga" : "png");
+					// Use pal2pace to convert to tga
+					string new_file_name = input_path + (!input_path.empty() ? "\\" : "") + current_file.substr(0, last_dot+1);
 					
 					if (!program_paths[EXE_PAL2PACE].empty()) {
-						string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + path_to_current_file + "\" \"" + new_file_name + "\"\"";
+						string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + path_to_current_file + "\" \"" + new_file_name + "tga\"\"";
 						system(command_line.c_str());
 					}
 					
+					// Use imagemagick to resize image
 					if (!program_paths[EXE_MAGICK].empty()) {
-						string command_line = "\"\"" + program_paths[EXE_MAGICK] + "\\magick.exe\" \"" + new_file_name + "\" -resize " + Int2Str(width) + "x" + Int2Str(height) + "! \"" + new_file_name + "\"\"";
+						string command_line = "\"\"" + program_paths[EXE_MAGICK] + "\\magick.exe\" \"" + new_file_name + "tga\" -resize " + Int2Str(width) + "x" + Int2Str(height) + "! \"" + new_file_name + "tga\"\"";
 						system(command_line.c_str());
 						
-						if (!is_alpha && !program_paths[EXE_PAL2PACE].empty()) {
-							string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + new_file_name + "\" \"" + path_to_current_file + "\"\"";
+						// Use pal2pace to convert to pac
+						if (!program_paths[EXE_PAL2PACE].empty()) {
+							string command_line  = "\"\"" + program_paths[EXE_PAL2PACE] + "\\Pal2PacE.exe\" \"" + new_file_name + "tga\" \"" + new_file_name + "pac\"\"";
 							system(command_line.c_str());
-							message += " - automatically fixed";
-						} else {
-							message += " - tga must be manually converted with PAAtool";
+							
+							// Replace old file if necessary
+							if (!Equals(path_to_current_file,new_file_name+"pac")) {
+								if (MoveFileEx((new_file_name+"pac").c_str(), path_to_current_file.c_str(), MOVEFILE_REPLACE_EXISTING))
+									message += " - automatically fixed";
+								else 
+									message += " - must be fixed manually";
+							} else
+								message += " - automatically fixed";
+								
+							DeleteFile((new_file_name+"tga").c_str());
 						}
 					}
 				}
