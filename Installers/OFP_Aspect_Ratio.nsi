@@ -482,7 +482,7 @@ Section
 
 	; Default values for string variables
 	StrCpy $finishpagetext ""
-	StrCpy $parameters " -nosplash -gamespy=master.ofpisnotdead.com "
+	StrCpy $parameters " -nosplash "
 	StrCpy $runtext "Launch game with the Fwatch"
 	StrCpy $exename "fwatch.exe"
   
