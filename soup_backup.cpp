@@ -468,7 +468,7 @@ int main(int argc, char *argv[])
     
     ifstream file_records;
     file_records.open(save_file_old.c_str(), ios::in);
-
+    
 	if (file_input.is_open()) {
         int line_number          = 0;
         bool category_separator  = false;
@@ -482,7 +482,7 @@ int main(int argc, char *argv[])
 			records_line = "";
 			
 			if (file_records.is_open())
-				getline(file_input, records_line);
+				getline(file_records, records_line);
 			
 			line_number++;
 			
