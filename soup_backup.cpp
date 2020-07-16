@@ -1,0 +1,644 @@
+/*
+Program I used to backup images under soup links saved in a text file
+- metadata is saved in tables.sql
+- will retry failed downloads when launched the next time
+*/
+
+#include <sstream>
+#include <windows.h>
+#include <fstream>
+#include <vector>
+#include <algorithm>
+#include <iostream>
+using namespace std;
+
+string DOWNLOADED_FILENAME;
+string ERROR_MESSAGE;
+
+string Int2Str(int num)
+{
+    ostringstream text;
+    text << num;
+    return text.str();
+}
+
+string Trim(string s)
+{
+	s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+	s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+	return s;
+}
+
+	// Windows error message
+string FormatError(int error)
+{
+	if (error == 0) 
+		return "\n";
+
+	LPTSTR errorText = NULL;
+
+	FormatMessage(
+	FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+	NULL,
+	error, 
+	MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+	(LPTSTR)&errorText,
+	0,
+	NULL);
+
+	string ret = "   - " + (string)(char*)errorText + "\n";
+
+	if (errorText != NULL)
+		LocalFree(errorText);
+
+	return Trim(ret);
+}
+
+	// Remove quotation marks
+string UnQuote(string text)
+{
+	if (text.substr(text.length()-1) == "\"")
+		text = text.substr(0, text.length()-1);
+	
+	if (text.substr(0,1) == "\"")
+		text = text.substr(1);
+		
+	return text;	
+}
+
+void Tokenize(string text, string delimiter, vector<string> &container, bool custom_delimiters=false)
+{
+	bool first_item   = false;
+	bool inQuote      = false;
+	char custom_delim = ' ';
+	bool use_unQuote  = true;
+	
+	// Split line into parts
+	for (int pos=0, begin=-1;  pos<=text.length();  pos++) {
+		bool isToken = pos == text.length();
+		
+		for (int i=0;  !isToken && i<delimiter.length();  i++)
+			if (text.substr(pos,1) == delimiter.substr(i,1))
+				isToken = true;
+				
+		if (text.substr(pos,1) == "\"")
+			inQuote = !inQuote;
+			
+		// Mark beginning of the word
+		if (!isToken  &&  begin<0) {
+			begin = pos;
+			
+			if (custom_delimiters) {
+				if (text.substr(begin,2) == ">>") {
+					begin      += 3;
+					size_t end  = text.find(text[pos+2], pos+3);
+					isToken     = true;
+					pos         = end==string::npos ? text.length() : end;
+					use_unQuote = false;
+				}
+			}
+		}
+
+		// Mark end of the word
+		if (isToken  &&  begin>=0  &&  !inQuote) {
+			string part = text.substr(begin, pos-begin);
+			
+			if (use_unQuote)
+				part = UnQuote(part);
+			else
+				use_unQuote = true;
+				
+			container.push_back(part);
+			begin = -1;
+		}
+	}
+}
+
+	// Read wget log to get information about download
+int ParseWgetLog(string &error)
+{
+	fstream DownloadLog;
+    DownloadLog.open("downloadLog.txt", ios::in);
+
+	if (DownloadLog.is_open()) {
+		string text        = "";
+		string filesize    = "";
+		bool foundFileName = false;
+		string Progress[]  = {"", "", "", ""};
+
+		while(getline(DownloadLog, text)) {
+			text = Trim(text);
+
+			if (text.empty())
+				continue;
+
+			// Get file size
+			if (filesize==""  &&  text.substr(0,8) == "Length: ") {
+				size_t open  = text.find('(');
+				size_t close = text.find(')');
+
+				if (open!=string::npos  &&  close!=string::npos)
+					filesize = text.substr( open+1, close-open-1);
+			}
+
+			// Get progress bar
+			if (text.find("0K ") != string::npos  &  text.find("% ") != string::npos) {
+				vector<string> Tokens;
+				Tokenize(text, " .=", Tokens);
+				
+				for (int i=0; i<Tokens.size(); i++)
+					Progress[i] = Tokens[i];
+			}
+
+			// Get file name
+			const int items = 4;
+			vector<string> SearchFor[items];
+
+			SearchFor[0].push_back("Saving to: '");
+			SearchFor[0].push_back("'");
+
+			SearchFor[1].push_back(") - '");
+			SearchFor[1].push_back("' saved [");
+
+			SearchFor[2].push_back("File '");
+			SearchFor[2].push_back("' already there; not retrieving");
+
+			SearchFor[3].push_back("Server file no newer than local file '");
+			SearchFor[3].push_back("' -- not retrieving");
+
+			for (int i=0; i<items; i++) {
+				size_t search1 = text.find(SearchFor[i][0]);
+				size_t search2 = text.find(SearchFor[i][1]);
+
+				if (search1!=string::npos  &&  search2!=string::npos) {
+					DOWNLOADED_FILENAME = text.substr( search1 + SearchFor[i][0].length(),  search2 - search1 - SearchFor[i][0].length());
+					foundFileName       = true;
+					break;
+				}
+			}
+
+			// Get error message
+			size_t search1 = text.find("failed");
+			size_t search2 = text.find("ERROR");
+
+			if (search1 != string::npos)
+				error = text;
+
+			if (search2 != string::npos)
+				error = text.substr(search2);
+		}
+
+		DownloadLog.close();
+
+		/*string tosave = "Connecting...";
+
+		if (Progress[0] != "")
+			tosave = "Downloading...\\n" + 
+					 DOWNLOADED_FILENAME + "\\n\\n" +
+					 Progress[0] + " / " + filesize + " - " + Progress[1] + "\\n" + 
+					 Progress[2] + "\\n" + 
+					 Progress[3] + " left";
+
+		WriteProgressFile(INSTALL_PROGRESS, tosave);*/
+	}
+	else
+		return 1;
+	
+	return 0;
+}
+
+int Download(string url, string filename, bool overwrite=true) 
+{
+	if (!filename.empty() && overwrite)
+		DeleteFile(filename.c_str());
+	
+	string arguments = " --output-file=downloadLog.txt --no-check-certificate ";
+	
+	if (!filename.empty())
+		arguments += "--output-document=" + filename + " ";
+		
+	arguments += url;
+	
+	cout << "Downloading: " << url << endl;
+	
+	// Execute program
+	PROCESS_INFORMATION pi;
+    STARTUPINFO si; 
+	ZeroMemory( &si, sizeof(si) );
+	ZeroMemory( &pi, sizeof(pi) );
+	si.cb 		   = sizeof(si);
+	si.dwFlags 	   = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_SHOW;
+	DWORD exit_code;
+	
+	if (CreateProcess("wget.exe", &arguments[0], NULL, NULL, false, 0, NULL, NULL, &si, &pi)) {
+		Sleep(10);
+	
+		string message = "";
+		
+		do {
+			ParseWgetLog(message);
+			GetExitCodeProcess(pi.hProcess, &exit_code);
+			Sleep(100);
+		}
+		while (exit_code == STILL_ACTIVE);
+			
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+		ParseWgetLog(message);
+		
+		if (exit_code != 0) {
+			cout << exit_code << " - " << message << endl;
+			ERROR_MESSAGE = message;
+		}
+		
+	} else {
+		int errorCode = GetLastError();
+		ERROR_MESSAGE = FormatError(errorCode);
+		cout << ERROR_MESSAGE;
+	}
+	
+	return exit_code;
+}
+
+int Read(string filename, string &buffer) {
+	buffer = "";		
+	fstream file;
+	file.open(filename.c_str(), ios::in);
+	
+	if (file.is_open()) {
+		string line;
+		
+		while (getline(file, line))
+			buffer += line;
+		
+		file.close();
+	} else
+		return errno;
+		
+	return 0;	
+}
+
+int Get(string url, string filename, string &buffer, bool overwrite=true)
+{
+	int result = Download(url, filename, overwrite);
+	
+	if (result != 0)
+		return result;
+		
+	return Read(filename, buffer);
+}
+
+string GetTextBetween(string &buffer, string start, string end, bool reverse=false)
+{
+	string out    = "";
+	size_t offset = 0;
+	size_t pos0   = buffer.find(start, offset);
+	
+	if (!reverse) {
+		if (pos0 != string::npos) {
+			size_t pos1 = pos0 + start.length();
+			size_t pos2 = buffer.find(end, pos1);
+			
+			if (pos2 != string::npos) {
+				offset = pos1;
+				out    = buffer.substr(pos1, pos2-pos1);
+			}
+		}		
+	} else {
+		if (pos0 != string::npos) {
+			size_t pos1 = buffer.rfind(end, pos0);			
+			
+			if (pos1 != string::npos) {
+				offset      = pos0 + start.length();
+				size_t pos2 = pos1 + end.length();
+				out         = buffer.substr(pos2, pos0-pos2);
+			}
+		}			
+	}
+
+	return out;
+}
+
+string GetTextBetweenOffset(string &buffer, string start, string end, size_t &offset, bool reverse=false)
+{
+	string out  = "";
+	size_t pos0 = buffer.find(start, offset);
+	
+	if (!reverse) {
+		if (pos0 != string::npos) {
+			size_t pos1 = pos0 + start.length();
+			size_t pos2 = buffer.find(end, pos1);
+			
+			if (pos2 != string::npos) {
+				offset = pos1;
+				out    = buffer.substr(pos1, pos2-pos1);
+			}
+		}		
+	} else {
+		if (pos0 != string::npos) {
+			size_t pos1 = buffer.rfind(end, pos0);			
+			
+			if (pos1 != string::npos) {
+				offset      = pos0 + start.length();
+				size_t pos2 = pos1 + end.length();
+				out         = buffer.substr(pos2, pos0-pos2);
+			}
+		}			
+	}
+
+	return out;
+}
+
+string HandleQuotes(string str, const string& from, const string& to) 
+{
+	if (from.empty())
+        return str;
+        
+    size_t start_pos = 0;
+    
+    while ((start_pos = str.find(from, start_pos)) != string::npos) {		
+		if (start_pos==0 || str.substr(start_pos-1,1) != "\\") {
+			str.replace(start_pos, from.length(), to);
+		}
+		
+        start_pos += to.length();
+    }
+    
+    return str;
+}
+
+//https://stackoverflow.com/questions/6691555/converting-narrow-string-to-wide-string
+wstring string2wide(const string& input)
+{
+    if (input.empty())
+		return wstring();
+
+	size_t output_length = MultiByteToWideChar(CP_UTF8, 0, input.c_str(), (int)input.length(), 0, 0);
+	wstring output(output_length, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, input.c_str(), (int)input.length(), &output[0], (int)input.length());
+	
+	return output;
+}
+
+int DownloadAndMove(string url, string path) 
+{
+	if (path.empty())
+		path = ".";
+	
+	int result = Download(url, "", false);
+	
+	if (result == 0) {
+		wstring source_wide      = string2wide(DOWNLOADED_FILENAME);
+		wstring destination_wide = string2wide(path + "\\" + DOWNLOADED_FILENAME);
+		
+		cout << "Moving " << DOWNLOADED_FILENAME << " to " << path << "\\" << DOWNLOADED_FILENAME << endl;
+		
+		result = MoveFileExW(source_wide.c_str(), destination_wide.c_str(), 0);
+
+	    if (!result) {
+			int errorCode = GetLastError();
+			ERROR_MESSAGE = FormatError(errorCode);
+			cout << "  FAILED " << errorCode << " " << ERROR_MESSAGE;
+			result = errorCode;
+	    } else
+	    	result = 0;
+	}
+	
+	return result;
+}
+
+
+
+
+int main(int argc, char *argv[]) 
+{
+	char default_file[] = "soup.txt";
+	char *filename = default_file;
+	
+	if (argc > 1)
+		filename = argv[1];
+	
+
+    vector<string> records;
+    records.resize(16835);
+    string text_line;
+    
+    ifstream file_records;
+    file_records.open("table.sql", ios::in);
+    if (file_records.is_open()) {
+    	int i = 0;
+    	
+    	while(getline(file_records, text_line))
+    		records[i++] = text_line;
+    	
+		file_records.close();
+	}
+
+	
+	ofstream file_output;
+	file_output.open("table2.sql", ios::out | ios::trunc);
+	file_output.close();
+
+
+    fstream file_input;
+    file_input.open(filename, ios::in);
+
+	if (file_input.is_open()) {
+        int line_number          = 0;
+        bool category_separator  = false;
+        string category_name     = "";
+        string sub_category_name = "";
+        string path              = "";
+
+		while(getline(file_input, text_line)) {
+			line_number++;
+
+			if (line_number > records.size()) {
+				cout << line_number << ">" << records.size() << " add new" << endl;
+				records.push_back("");
+			}
+			
+			if (text_line[0] == '-' || text_line[0] == '=') {
+				category_separator = true;
+				path = "";
+			}
+			
+			if (text_line[0] == '\t') {
+				if (category_separator) {
+					category_separator = false;
+					category_name = Trim(text_line);
+					path = category_name;
+					wstring source_wide = string2wide(path);
+					CreateDirectoryW(source_wide.c_str(), NULL);
+				} else {
+					sub_category_name = Trim(text_line);
+					path = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
+					wstring source_wide = string2wide(path);
+					CreateDirectoryW(source_wide.c_str(), NULL);
+				}
+			}
+			
+			size_t protocol    = text_line.find("http");
+			size_t soup_link   = text_line.find("soup.io/post");
+			size_t direct_link = text_line.find("soupcdn.com/");
+			
+			if (protocol!=string::npos && protocol>0 && !isspace(text_line.at(protocol-1)))
+				protocol = string::npos;
+
+			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos;
+
+			if ((records[line_number-1].empty() || records[line_number-1].substr(0,5)=="ERROR")  &&  is_valid_link) {
+				cout << line_number << ":" << text_line << endl;
+				
+				records[line_number-1] = "ERROR";
+				string url = "";
+				size_t end = 0;
+				
+				for (int i=protocol; i<text_line.length(); i++) {
+					end = i+1;
+					if (isspace(text_line.at(i)))
+						break;
+				}
+				
+				if (direct_link != string::npos) {
+					size_t asset2 = text_line.find("/asset/");
+					
+					if (asset2 != string::npos) {
+						url = "https://whatthepost.soup.io" + text_line.substr(asset2, end-asset2);
+					}
+				} else
+					url = text_line.substr(protocol, end-protocol);
+				
+				string current_page = "";
+				int result = Get(url, "current_page.htm", current_page);
+				//Read("current_page.htm", current_page);
+				
+				if (result == 0) {
+					/*
+					enum POST_TYPES {
+						POST_TEXT,
+						POST_LINK,
+						POST_QUOTE,
+						POST_IMAGE,
+						POST_VIDEO,
+						POST_FILE,
+						POST_REVIEW,
+						POST_EVENT
+					};*/
+					
+					enum POST_TYPES {
+						POST_UNKNOWN,
+						POST_TEXT,
+						POST_IMAGE,
+						POST_VIDEO
+					};
+					
+					int post_type      = POST_UNKNOWN;
+					bool content_saved = false;
+					
+					string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
+					current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
+					string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
+					string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
+					string source_url      = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
+					string video           = GetTextBetween(current_page, "<video", "</video>");
+					
+					string body            = "";
+					string image_url       = "";
+					string image_url_small = "";
+					
+					if (!image_container.empty()) {
+						post_type       = POST_IMAGE;
+						image_url_small = GetTextBetween(image_container, "src=\"", "\"");
+						
+						if (image_container.find("lightbox") != string::npos)
+							image_url = GetTextBetween(image_container, "href=\"", "\"");
+						
+						if (image_url.empty())
+							image_url = image_url_small;
+						
+						
+						content_saved = DownloadAndMove(image_url, path)==0; 
+					} else 
+						if (!video.empty()) {
+							post_type = POST_VIDEO;
+							image_url = GetTextBetween(image_container, "src=\"", "\"");
+							content_saved = DownloadAndMove(image_url, path)==0; 
+						} else {
+							size_t body_pos = current_page.find("<span class=\"body\">");
+						
+							if (body_pos != string::npos) {
+								body          = current_page.substr(body_pos);
+								post_type     = POST_TEXT;
+								content_saved = true;
+							}
+						}
+						
+					string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
+					string tags           = "";
+					
+					if (!tags_container.empty()) {
+						size_t offset     = 0;
+						string single_tag = "";
+						
+						do {
+							single_tag = GetTextBetweenOffset(tags_container, "</a>", ">", offset, true);
+							tags      += single_tag + " ";
+						} while (!single_tag.empty());
+					}
+
+					if (content_saved) {
+						string record = 
+						"('" + Trim(url) + 
+						"'," + Int2Str(post_type) + 
+						",'" + date + 
+						"','" + HandleQuotes(body, "'", "\\'") + 
+						"','" + HandleQuotes(description, "'", "\\'") + 
+						"','" + image_url + 
+						"','" + image_url_small + 
+						"','" + source_url + 
+						"','" + Trim(tags) + 
+						"','" + path + 
+						"');";
+						
+						records[line_number-1] = record;
+						/*
+						INSERT INTO
+						permalink,
+						posttype,
+						postedtime,
+						body,
+						description
+						image_url
+						image_url_preview
+						image_source
+						directory path
+						*/
+					} else {
+						cout << "Content not saved: " << ERROR_MESSAGE << endl;
+						
+						if (post_type == POST_UNKNOWN)
+							records[line_number-1] = "ERROR - UNKNOWN POST";
+						else
+							records[line_number-1] = "ERROR - " + ERROR_MESSAGE;
+					}
+				} else {
+					records[line_number-1] = "ERROR - " + ERROR_MESSAGE;
+				}
+			} else {
+				if (!is_valid_link)
+					records[line_number-1] = "-- " + text_line;
+			}
+			
+			file_output.open("table2.sql", ios::out | ios::app);
+			file_output << records[line_number-1] << endl;
+			file_output.close();
+		}
+				
+		file_input.close();
+	}
+	
+	MoveFileEx("table2.sql", "table.sql", MOVEFILE_REPLACE_EXISTING);
+	return 0;
+}
