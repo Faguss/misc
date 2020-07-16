@@ -1,7 +1,26 @@
 /*
-Program I used to backup images under soup links saved in a text file
-- metadata is saved in tables.sql
+Program I used to backup soup.io posts from links stored in a text file
+- metadata is saved in table.sql
+- don't change order of lines in soup.txt and table.sql
 - will retry failed downloads when launched the next time
+
+
+CREATE TABLE `soup_posts` (
+  `id` int(11) NOT NULL,
+  `permalink` text COLLATE utf8_unicode_ci NOT NULL,
+  `content_type` int(11) NOT NULL,
+  `date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `html_body` text COLLATE utf8_unicode_ci NOT NULL,
+  `image_description` text COLLATE utf8_unicode_ci NOT NULL,
+  `url` text COLLATE utf8_unicode_ci NOT NULL,
+  `image_preview` text COLLATE utf8_unicode_ci NOT NULL,
+  `image_source` text COLLATE utf8_unicode_ci NOT NULL,
+  `tags` text COLLATE utf8_unicode_ci NOT NULL,
+  `folder` text COLLATE utf8_unicode_ci NOT NULL,
+  `comment` text COLLATE utf8_unicode_ci NOT NULL
+) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+
+INSERT INTO soup_posts (`permalink`, `content_type`, `date`, `html_body`, `image_description`, `url`, `image_preview`, `image_source`, `tags`, `folder`, `comment`) VALUES
 */
 
 #include <sstream>
@@ -46,7 +65,7 @@ string FormatError(int error)
 	0,
 	NULL);
 
-	string ret = "   - " + (string)(char*)errorText + "\n";
+	string ret = "   - " + (string)(char*)errorText;
 
 	if (errorText != NULL)
 		LocalFree(errorText);
@@ -408,6 +427,22 @@ int DownloadAndMove(string url, string path)
 	return result;
 }
 
+	// http://stackoverflow.com/a/3418285
+string ReplaceAll(string str, const string& from, const string& to) 
+{
+    if (from.empty())
+        return str;
+        
+    size_t start_pos = 0;
+    
+    while ((start_pos = str.find(from, start_pos)) != string::npos) {		
+		str.replace(start_pos, from.length(), to);
+        start_pos += to.length();
+    }
+    
+    return str;
+}
+
 
 
 
@@ -419,30 +454,20 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		filename = argv[1];
 	
-
-    vector<string> records;
-    records.resize(16835);
-    string text_line;
     
-    ifstream file_records;
-    file_records.open("table.sql", ios::in);
-    if (file_records.is_open()) {
-    	int i = 0;
-    	
-    	while(getline(file_records, text_line))
-    		records[i++] = text_line;
-    	
-		file_records.close();
-	}
-
+    string save_file_new = "table_in_progress.sql";
+    string save_file_old = "table.sql";
 	
+		
 	ofstream file_output;
-	file_output.open("table2.sql", ios::out | ios::trunc);
+	file_output.open(save_file_new.c_str(), ios::out | ios::trunc);
 	file_output.close();
-
 
     fstream file_input;
     file_input.open(filename, ios::in);
+    
+    ifstream file_records;
+    file_records.open(save_file_old.c_str(), ios::in);
 
 	if (file_input.is_open()) {
         int line_number          = 0;
@@ -450,14 +475,16 @@ int main(int argc, char *argv[])
         string category_name     = "";
         string sub_category_name = "";
         string path              = "";
+    	string text_line         = "";
+    	string records_line      = "";
 
 		while(getline(file_input, text_line)) {
+			records_line = "";
+			
+			if (file_records.is_open())
+				getline(file_input, records_line);
+			
 			line_number++;
-
-			if (line_number > records.size()) {
-				cout << line_number << ">" << records.size() << " add new" << endl;
-				records.push_back("");
-			}
 			
 			if (text_line[0] == '-' || text_line[0] == '=') {
 				category_separator = true;
@@ -466,14 +493,14 @@ int main(int argc, char *argv[])
 			
 			if (text_line[0] == '\t') {
 				if (category_separator) {
-					category_separator = false;
-					category_name = Trim(text_line);
-					path = category_name;
+					category_separator  = false;
+					category_name       = Trim(text_line);
+					path                = category_name;
 					wstring source_wide = string2wide(path);
 					CreateDirectoryW(source_wide.c_str(), NULL);
 				} else {
-					sub_category_name = Trim(text_line);
-					path = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
+					sub_category_name   = Trim(text_line);
+					path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
 					wstring source_wide = string2wide(path);
 					CreateDirectoryW(source_wide.c_str(), NULL);
 				}
@@ -488,10 +515,10 @@ int main(int argc, char *argv[])
 
 			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos;
 
-			if ((records[line_number-1].empty() || records[line_number-1].substr(0,5)=="ERROR")  &&  is_valid_link) {
-				cout << line_number << ":" << text_line << endl;
+			if ((records_line.empty() || records_line.substr(0,5)=="ERROR")  &&  is_valid_link) {
+				cout << "Line " << line_number << endl;
 				
-				records[line_number-1] = "ERROR";
+				records_line = "ERROR";
 				string url = "";
 				size_t end = 0;
 				
@@ -504,29 +531,16 @@ int main(int argc, char *argv[])
 				if (direct_link != string::npos) {
 					size_t asset2 = text_line.find("/asset/");
 					
-					if (asset2 != string::npos) {
+					if (asset2 != string::npos)
 						url = "https://whatthepost.soup.io" + text_line.substr(asset2, end-asset2);
-					}
 				} else
 					url = text_line.substr(protocol, end-protocol);
 				
 				string current_page = "";
 				int result = Get(url, "current_page.htm", current_page);
-				//Read("current_page.htm", current_page);
+				//int result = Read("current_page.htm", current_page);
 				
-				if (result == 0) {
-					/*
-					enum POST_TYPES {
-						POST_TEXT,
-						POST_LINK,
-						POST_QUOTE,
-						POST_IMAGE,
-						POST_VIDEO,
-						POST_FILE,
-						POST_REVIEW,
-						POST_EVENT
-					};*/
-					
+				if (result == 0) {					
 					enum POST_TYPES {
 						POST_UNKNOWN,
 						POST_TEXT,
@@ -541,7 +555,6 @@ int main(int argc, char *argv[])
 					current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
 					string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
 					string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
-					string source_url      = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
 					string video           = GetTextBetween(current_page, "<video", "</video>");
 					
 					string body            = "";
@@ -562,8 +575,8 @@ int main(int argc, char *argv[])
 						content_saved = DownloadAndMove(image_url, path)==0; 
 					} else 
 						if (!video.empty()) {
-							post_type = POST_VIDEO;
-							image_url = GetTextBetween(image_container, "src=\"", "\"");
+							post_type     = POST_VIDEO;
+							image_url     = GetTextBetween(image_container, "src=\"", "\"");
 							content_saved = DownloadAndMove(image_url, path)==0; 
 						} else {
 							size_t body_pos = current_page.find("<span class=\"body\">");
@@ -574,6 +587,13 @@ int main(int argc, char *argv[])
 								content_saved = true;
 							}
 						}
+					
+					string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
+					string source_url       = "";
+					
+					if (!source_container.empty())
+						source_url = GetTextBetween(source_container, "href=\"", "\"");
+						
 						
 					string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
 					string tags           = "";
@@ -587,58 +607,43 @@ int main(int argc, char *argv[])
 							tags      += single_tag + " ";
 						} while (!single_tag.empty());
 					}
+					
+					if (!date.empty())
+						date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
 
-					if (content_saved) {
-						string record = 
+					if (content_saved) {						
+						records_line = 
 						"('" + Trim(url) + 
 						"'," + Int2Str(post_type) + 
-						",'" + date + 
-						"','" + HandleQuotes(body, "'", "\\'") + 
+						"," + date + 
+						",'" + HandleQuotes(body, "'", "\\'") + 
 						"','" + HandleQuotes(description, "'", "\\'") + 
 						"','" + image_url + 
 						"','" + image_url_small + 
 						"','" + source_url + 
 						"','" + Trim(tags) + 
 						"','" + path + 
+						"','" + HandleQuotes(text_line.substr(end), "'", "\\'") + 
 						"');";
-						
-						records[line_number-1] = record;
-						/*
-						INSERT INTO
-						permalink,
-						posttype,
-						postedtime,
-						body,
-						description
-						image_url
-						image_url_preview
-						image_source
-						directory path
-						*/
 					} else {
-						cout << "Content not saved: " << ERROR_MESSAGE << endl;
-						
-						if (post_type == POST_UNKNOWN)
-							records[line_number-1] = "ERROR - UNKNOWN POST";
-						else
-							records[line_number-1] = "ERROR - " + ERROR_MESSAGE;
+						cout << "Content not saved: " << ERROR_MESSAGE << endl;						
+						records_line = post_type == POST_UNKNOWN ? "ERROR - UNKNOWN POST" : ("ERROR - " + ERROR_MESSAGE);
 					}
-				} else {
-					records[line_number-1] = "ERROR - " + ERROR_MESSAGE;
-				}
-			} else {
+				} else
+					records_line = "ERROR - " + ERROR_MESSAGE;
+			} else
 				if (!is_valid_link)
-					records[line_number-1] = "-- " + text_line;
-			}
+					records_line = "-- " + text_line;
 			
-			file_output.open("table2.sql", ios::out | ios::app);
-			file_output << records[line_number-1] << endl;
+			file_output.open(save_file_new.c_str(), ios::out | ios::app);
+			file_output << records_line << endl;
 			file_output.close();
 		}
 				
 		file_input.close();
 	}
 	
-	MoveFileEx("table2.sql", "table.sql", MOVEFILE_REPLACE_EXISTING);
+	file_records.close();
+	MoveFileEx(save_file_new.c_str(), save_file_old.c_str(), MOVEFILE_REPLACE_EXISTING);
 	return 0;
 }
