@@ -231,7 +231,7 @@ int Download(string url, string filename, bool overwrite=true)
 	if (!filename.empty() && overwrite)
 		DeleteFile(filename.c_str());
 	
-	string arguments = " --output-file=downloadLog.txt --no-check-certificate ";
+	string arguments = " --tries=1 --output-file=downloadLog.txt --no-check-certificate ";
 	
 	if (!filename.empty())
 		arguments += "--output-document=" + filename + " ";
@@ -623,7 +623,7 @@ int main(int argc, char *argv[])
 						"','" + source_url + 
 						"','" + Trim(tags) + 
 						"','" + path + 
-						"','" + HandleQuotes(text_line.substr(end), "'", "\\'") + 
+						"','" + HandleQuotes(Trim(text_line.substr(end)), "'", "\\'") + 
 						"');";
 					} else {
 						cout << "Content not saved: " << ERROR_MESSAGE << endl;						
