@@ -516,12 +516,12 @@ int main(int argc, char *argv[])
 				if (text_line[0] == '\t' && !Trim(text_line).empty()) {
 					if (category_separator) {
 						category_separator  = false;
-						category_name       = Trim(text_line);
+						category_name       = ReplaceAll(Trim(text_line), "\t", "");
 						path                = category_name;
 						wstring source_wide = string2wide(path);
 						CreateDirectoryW(source_wide.c_str(), NULL);
 					} else {
-						sub_category_name   = Trim(text_line);
+						sub_category_name   = ReplaceAll(Trim(text_line), "\t", "");
 						path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
 						wstring source_wide = string2wide(path);
 						CreateDirectoryW(source_wide.c_str(), NULL);
@@ -551,13 +551,16 @@ int main(int argc, char *argv[])
 				} else
 					url = text_line.substr(protocol, end-protocol);
 				
+				Sleep(2000);
 				string current_page = "";
 				int result = Get(url, "current_page.htm", current_page);
 				//int result = Read("current_page.htm", current_page);
 				
 				string post_url = DOWNLOADED_URL;
 				
-				if (result == 0) {					
+				bool post_exists = post_url.find("/post/") != string::npos;
+				
+				if (result == 0 && post_exists) {
 					enum POST_TYPES {
 						POST_UNKNOWN,
 						POST_TEXT,
@@ -655,7 +658,10 @@ int main(int argc, char *argv[])
 						records_line = post_type == POST_UNKNOWN ? "--ERROR - UNKNOWN POST" : ("--ERROR - " + ERROR_MESSAGE);
 					}
 				} else
-					records_line = "--ERROR - " + ERROR_MESSAGE;
+					if (result==0 && !post_exists)
+						records_line = "post deleted";
+					else
+						records_line = "--ERROR - " + ERROR_MESSAGE;
 			} else
 				if (!is_valid_link)
 					records_line = "-- " + text_line;
