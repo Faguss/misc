@@ -273,7 +273,7 @@ int Download(string url, string filename, bool overwrite=true)
 		
 	} else {
 		int errorCode = GetLastError();
-		ERROR_MESSAGE = FormatError(errorCode);
+		ERROR_MESSAGE = "Failed to run wget.exe - " + FormatError(errorCode);
 		cout << ERROR_MESSAGE;
 	}
 	
@@ -408,16 +408,18 @@ int DownloadAndMove(string url, string path)
 	int result = Download(url, "", false);
 	
 	if (result == 0) {
-		wstring source_wide      = string2wide(DOWNLOADED_FILENAME);
-		wstring destination_wide = string2wide(path + "\\" + DOWNLOADED_FILENAME);
+		string source            = DOWNLOADED_FILENAME;
+		string destination       = path + "\\" + DOWNLOADED_FILENAME;
+		wstring source_wide      = string2wide(source);
+		wstring destination_wide = string2wide(destination);
 		
-		cout << "Moving " << DOWNLOADED_FILENAME << " to " << path << "\\" << DOWNLOADED_FILENAME << endl;
+		cout << "Moving " << source << " to " << destination << endl;
 		
-		result = MoveFileExW(source_wide.c_str(), destination_wide.c_str(), 0);
+		result        = MoveFileExW(source_wide.c_str(), destination_wide.c_str(), 0);
+		int errorCode = GetLastError();
 
-	    if (!result) {
-			int errorCode = GetLastError();
-			ERROR_MESSAGE = FormatError(errorCode);
+	    if (!result && errorCode != 183) {
+			ERROR_MESSAGE = "Move " + source + " " + destination + " " + FormatError(errorCode);
 			cout << "  FAILED " << errorCode << " " << ERROR_MESSAGE;
 			result = errorCode;
 	    } else
@@ -486,25 +488,6 @@ int main(int argc, char *argv[])
 			
 			line_number++;
 			
-			if (text_line[0] == '-' || text_line[0] == '=') {
-				category_separator = true;
-				path = "";
-			}
-			
-			if (text_line[0] == '\t') {
-				if (category_separator) {
-					category_separator  = false;
-					category_name       = Trim(text_line);
-					path                = category_name;
-					wstring source_wide = string2wide(path);
-					CreateDirectoryW(source_wide.c_str(), NULL);
-				} else {
-					sub_category_name   = Trim(text_line);
-					path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
-					wstring source_wide = string2wide(path);
-					CreateDirectoryW(source_wide.c_str(), NULL);
-				}
-			}
 			
 			size_t protocol    = text_line.find("http");
 			size_t soup_link   = text_line.find("soup.io/post");
@@ -514,11 +497,35 @@ int main(int argc, char *argv[])
 				protocol = string::npos;
 
 			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos;
+			
+			
+			if (protocol == string::npos) {
+				if (text_line[0] == '-' || text_line[0] == '=') {
+					category_separator = true;
+					path = "";
+				}
+				
+				if (text_line[0] == '\t' && !Trim(text_line).empty()) {
+					if (category_separator) {
+						category_separator  = false;
+						category_name       = Trim(text_line);
+						path                = category_name;
+						wstring source_wide = string2wide(path);
+						CreateDirectoryW(source_wide.c_str(), NULL);
+					} else {
+						sub_category_name   = Trim(text_line);
+						path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
+						wstring source_wide = string2wide(path);
+						CreateDirectoryW(source_wide.c_str(), NULL);
+					}
+				}
+			}
 
-			if ((records_line.empty() || records_line.substr(0,5)=="ERROR")  &&  is_valid_link) {
+
+			if ((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) {
 				cout << "Line " << line_number << endl;
 				
-				records_line = "ERROR";
+				records_line = "--ERROR";
 				string url = "";
 				size_t end = 0;
 				
@@ -551,6 +558,9 @@ int main(int argc, char *argv[])
 					int post_type      = POST_UNKNOWN;
 					bool content_saved = false;
 					
+					if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
+						current_page = "";
+					
 					string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
 					current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
 					string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
@@ -580,6 +590,9 @@ int main(int argc, char *argv[])
 							content_saved = DownloadAndMove(image_url, path)==0; 
 						} else {
 							size_t body_pos = current_page.find("<span class=\"body\">");
+							
+							if (body_pos == string::npos)
+								body_pos = current_page.find("<div class=\"body\">");
 						
 							if (body_pos != string::npos) {
 								body          = current_page.substr(body_pos);
@@ -622,15 +635,15 @@ int main(int argc, char *argv[])
 						"','" + image_url_small + 
 						"','" + source_url + 
 						"','" + Trim(tags) + 
-						"','" + path + 
+						"','" + ReplaceAll(path, "\\", "\\\\") + 
 						"','" + HandleQuotes(Trim(text_line.substr(end)), "'", "\\'") + 
-						"');";
+						"'),";
 					} else {
 						cout << "Content not saved: " << ERROR_MESSAGE << endl;						
-						records_line = post_type == POST_UNKNOWN ? "ERROR - UNKNOWN POST" : ("ERROR - " + ERROR_MESSAGE);
+						records_line = post_type == POST_UNKNOWN ? "--ERROR - UNKNOWN POST" : ("--ERROR - " + ERROR_MESSAGE);
 					}
 				} else
-					records_line = "ERROR - " + ERROR_MESSAGE;
+					records_line = "--ERROR - " + ERROR_MESSAGE;
 			} else
 				if (!is_valid_link)
 					records_line = "-- " + text_line;
