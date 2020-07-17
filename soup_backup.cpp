@@ -32,6 +32,7 @@ INSERT INTO soup_posts (`permalink`, `content_type`, `date`, `html_body`, `image
 using namespace std;
 
 string DOWNLOADED_FILENAME;
+string DOWNLOADED_URL;
 string ERROR_MESSAGE;
 
 string Int2Str(int num)
@@ -205,6 +206,13 @@ int ParseWgetLog(string &error)
 
 			if (search2 != string::npos)
 				error = text.substr(search2);
+				
+			// Get url
+			size_t separator = text.find("--  ");
+			size_t protocol  = text.find("://");
+			if (separator != string::npos && protocol != string::npos) {
+				DOWNLOADED_URL = text.substr(separator+4);
+			}
 		}
 
 		DownloadLog.close();
@@ -547,6 +555,8 @@ int main(int argc, char *argv[])
 				int result = Get(url, "current_page.htm", current_page);
 				//int result = Read("current_page.htm", current_page);
 				
+				string post_url = DOWNLOADED_URL;
+				
 				if (result == 0) {					
 					enum POST_TYPES {
 						POST_UNKNOWN,
@@ -628,7 +638,7 @@ int main(int argc, char *argv[])
 
 					if (content_saved) {						
 						records_line = 
-						"('" + Trim(url) + 
+						"('" + Trim(post_url) + 
 						"'," + Int2Str(post_type) + 
 						"," + date + 
 						",'" + HandleQuotes(body, "'", "\\'") + 
