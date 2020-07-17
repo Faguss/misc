@@ -1,6 +1,7 @@
 /*
 Program I used to backup soup.io posts from links stored in a text file
-- metadata is saved in table.sql
+- requires wget.exe 1.20.3 and soup.txt to be in the same folder
+- metadata is saved to table.sql
 - don't change order of lines in soup.txt and table.sql
 - will retry failed downloads when launched the next time
 
@@ -513,15 +514,26 @@ int main(int argc, char *argv[])
 					path = "";
 				}
 				
-				if (text_line[0] == '\t' && !Trim(text_line).empty()) {
+				if (text_line[0] == '\t' && !Trim(text_line).empty()) {					
+					char illegal_chars[] = "\t\\/<>|\":?*";
+					
+					for (int i=0; i<text_line.length(); i++) {
+						for (int j=0; j<strlen(illegal_chars); j++) {
+							if (text_line[i] == illegal_chars[j])
+								text_line[i] = ' ';
+						}
+					}
+					
+					text_line = Trim(text_line).substr(0, 100);
+					
 					if (category_separator) {
 						category_separator  = false;
-						category_name       = ReplaceAll(Trim(text_line), "\t", "");
+						category_name       = text_line;
 						path                = category_name;
 						wstring source_wide = string2wide(path);
 						CreateDirectoryW(source_wide.c_str(), NULL);
 					} else {
-						sub_category_name   = ReplaceAll(Trim(text_line), "\t", "");
+						sub_category_name   = text_line;
 						path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
 						wstring source_wide = string2wide(path);
 						CreateDirectoryW(source_wide.c_str(), NULL);
@@ -599,7 +611,7 @@ int main(int argc, char *argv[])
 					} else 
 						if (!video.empty()) {
 							post_type     = POST_VIDEO;
-							image_url     = GetTextBetween(image_container, "src=\"", "\"");
+							image_url     = GetTextBetween(video, "src=\"", "\"");
 							content_saved = DownloadAndMove(image_url, path)==0; 
 						} else {
 							size_t body_pos = current_page.find("<span class=\"body\">");
