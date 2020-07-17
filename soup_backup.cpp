@@ -623,6 +623,8 @@ int main(int argc, char *argv[])
 					
 					if (!date.empty())
 						date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
+					else
+						date = "''";
 
 					if (content_saved) {						
 						records_line = 
