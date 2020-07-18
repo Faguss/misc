@@ -491,7 +491,7 @@ int main(int argc, char *argv[])
 
 		while(getline(file_input, text_line)) {
 			records_line = "";
-			
+
 			if (file_records.is_open())
 				getline(file_records, records_line);
 			
@@ -514,7 +514,7 @@ int main(int argc, char *argv[])
 					path = "";
 				}
 				
-				if (text_line[0] == '\t' && !Trim(text_line).empty()) {					
+				if (text_line[0] == '\t' && !Trim(text_line).empty()) {				
 					char illegal_chars[] = "\t\\/<>|\":?*";
 					
 					for (int i=0; i<text_line.length(); i++) {
@@ -541,7 +541,6 @@ int main(int argc, char *argv[])
 				}
 			}
 
-
 			if ((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) {
 				cout << "Line " << line_number << endl;
 				
@@ -565,115 +564,143 @@ int main(int argc, char *argv[])
 				
 				Sleep(2000);
 				string current_page = "";
-				int result = Get(url, "current_page.htm", current_page);
-				//int result = Read("current_page.htm", current_page);
+				int result          = Get(url, "current_page.htm", current_page);
+				string post_url     = DOWNLOADED_URL;
 				
-				string post_url = DOWNLOADED_URL;
+				//int result      = Read("current_page.htm", current_page)
+				//string post_url = url;
 				
-				bool post_exists = post_url.find("/post/") != string::npos;
+				enum PAGE_STATUS {
+					PAGE_NOT_DOWNLOADED,
+					PAGE_OK,
+					PAGE_DELETED,
+					PAGE_HEAVYLOAD,
+					PAGE_PRIVATE
+				};
 				
-				if (result == 0 && post_exists) {
-					enum POST_TYPES {
-						POST_UNKNOWN,
-						POST_TEXT,
-						POST_IMAGE,
-						POST_VIDEO
-					};
-					
-					int post_type      = POST_UNKNOWN;
-					bool content_saved = false;
-					
-					if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
-						current_page = "";
-					
-					string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
-					current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
-					string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
-					string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
-					string video           = GetTextBetween(current_page, "<video", "</video>");
-					
-					string body            = "";
-					string image_url       = "";
-					string image_url_small = "";
-					
-					if (!image_container.empty()) {
-						post_type       = POST_IMAGE;
-						image_url_small = GetTextBetween(image_container, "src=\"", "\"");
+				int page_status = PAGE_NOT_DOWNLOADED;
+				
+				if (result == 0) {
+					if (post_url.find("/post/") == string::npos)
+						page_status = PAGE_DELETED;
+					else						
+						if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
+							page_status = PAGE_HEAVYLOAD;
+						else
+							if (current_page.find("This soup is too private for you!") != string::npos)
+								page_status = PAGE_PRIVATE;
+							else
+								page_status = PAGE_OK;
+				}
+				
+				switch(page_status) {
+					case PAGE_OK : {
+						enum POST_TYPES {
+							POST_UNKNOWN,
+							POST_TEXT,
+							POST_IMAGE,
+							POST_VIDEO
+						};
+	
+						int post_type        = POST_UNKNOWN;
+						bool content_saved   = false;
+	
+						string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
+						current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
+						string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
+						string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
+						string video           = GetTextBetween(current_page, "<video", "</video>");
 						
-						if (image_container.find("lightbox") != string::npos)
-							image_url = GetTextBetween(image_container, "href=\"", "\"");
+						string body            = "";
+						string image_url       = "";
+						string image_url_small = "";
 						
-						if (image_url.empty())
-							image_url = image_url_small;
-						
-						
-						content_saved = DownloadAndMove(image_url, path)==0; 
-					} else 
-						if (!video.empty()) {
-							post_type     = POST_VIDEO;
-							image_url     = GetTextBetween(video, "src=\"", "\"");
-							content_saved = DownloadAndMove(image_url, path)==0; 
-						} else {
-							size_t body_pos = current_page.find("<span class=\"body\">");
+						if (!image_container.empty()) {
+							post_type       = POST_IMAGE;
+							image_url_small = GetTextBetween(image_container, "src=\"", "\"");
 							
-							if (body_pos == string::npos)
-								body_pos = current_page.find("<div class=\"body\">");
-						
-							if (body_pos != string::npos) {
-								body          = current_page.substr(body_pos);
-								post_type     = POST_TEXT;
-								content_saved = true;
+							if (image_container.find("lightbox") != string::npos)
+								image_url = GetTextBetween(image_container, "href=\"", "\"");
+							
+							if (image_url.empty())
+								image_url = image_url_small;
+							
+							
+							content_saved = DownloadAndMove(image_url, path)==0; 
+						} else 
+							if (!video.empty()) {
+								post_type     = POST_VIDEO;
+								image_url     = GetTextBetween(video, "src=\"", "\"");
+								content_saved = DownloadAndMove(image_url, path)==0; 
+							} else {
+								size_t body_pos = current_page.find("<span class=\"body\">");
+								
+								if (body_pos == string::npos)
+									body_pos = current_page.find("<div class=\"body\">");
+							
+								if (body_pos != string::npos) {
+									body          = current_page.substr(body_pos);
+									post_type     = POST_TEXT;
+									content_saved = true;
+								}
 							}
+						
+						string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
+						string source_url       = "";
+						
+						if (!source_container.empty())
+							source_url = GetTextBetween(source_container, "href=\"", "\"");
+							
+							
+						string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
+						string tags           = "";
+						
+						if (!tags_container.empty()) {
+							size_t offset     = 0;
+							string single_tag = "";
+							
+							do {
+								single_tag = GetTextBetweenOffset(tags_container, "</a>", ">", offset, true);
+								tags      += single_tag + " ";
+							} while (!single_tag.empty());
 						}
-					
-					string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
-					string source_url       = "";
-					
-					if (!source_container.empty())
-						source_url = GetTextBetween(source_container, "href=\"", "\"");
 						
-						
-					string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
-					string tags           = "";
+						if (!date.empty())
+							date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
+						else
+							date = "''";
+	
+						if (content_saved) {						
+							records_line = 
+							"('" + Trim(post_url) + 
+							"'," + Int2Str(post_type) + 
+							"," + date + 
+							",'" + HandleQuotes(body, "'", "\\'") + 
+							"','" + HandleQuotes(description, "'", "\\'") + 
+							"','" + image_url + 
+							"','" + image_url_small + 
+							"','" + source_url + 
+							"','" + Trim(tags) + 
+							"','" + ReplaceAll(path, "\\", "\\\\") + 
+							"','" + HandleQuotes(Trim(text_line.substr(end)), "'", "\\'") + 
+							"'),";
+						} else {
+							if (post_type == POST_UNKNOWN) {
+								string new_name = Int2Str(line_number) + "unknown_post.htm";
+								MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
+								ERROR_MESSAGE = "UNKNOWN POST";
+							}
+							
+							cout << "Content not saved: " << ERROR_MESSAGE << endl;
+							records_line = "--ERROR - " + ERROR_MESSAGE;
+						}
+					} break;
 					
-					if (!tags_container.empty()) {
-						size_t offset     = 0;
-						string single_tag = "";
-						
-						do {
-							single_tag = GetTextBetweenOffset(tags_container, "</a>", ">", offset, true);
-							tags      += single_tag + " ";
-						} while (!single_tag.empty());
-					}
-					
-					if (!date.empty())
-						date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
-					else
-						date = "''";
-
-					if (content_saved) {						
-						records_line = 
-						"('" + Trim(post_url) + 
-						"'," + Int2Str(post_type) + 
-						"," + date + 
-						",'" + HandleQuotes(body, "'", "\\'") + 
-						"','" + HandleQuotes(description, "'", "\\'") + 
-						"','" + image_url + 
-						"','" + image_url_small + 
-						"','" + source_url + 
-						"','" + Trim(tags) + 
-						"','" + ReplaceAll(path, "\\", "\\\\") + 
-						"','" + HandleQuotes(Trim(text_line.substr(end)), "'", "\\'") + 
-						"'),";
-					} else {
-						cout << "Content not saved: " << ERROR_MESSAGE << endl;						
-						records_line = post_type == POST_UNKNOWN ? "--ERROR - UNKNOWN POST" : ("--ERROR - " + ERROR_MESSAGE);
-					}
-				} else
-					if (result==0 && !post_exists)
-						records_line = "post deleted";
-					else
-						records_line = "--ERROR - " + ERROR_MESSAGE;
+					case PAGE_DELETED   : records_line = "--post deleted"; break;
+					case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
+					case PAGE_PRIVATE   : records_line = "--post private"; break;
+					default             : records_line = "--ERROR - " + ERROR_MESSAGE;
+				}
 			} else
 				if (!is_valid_link)
 					records_line = "-- " + text_line;
