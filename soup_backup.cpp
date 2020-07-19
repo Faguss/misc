@@ -1,10 +1,19 @@
 /*
-Program I used to backup soup.io posts from links stored in a text file
-- requires wget.exe 1.20.3 and soup.txt to be in the same folder
-- metadata is saved to table.sql
-- don't change order of lines in soup.txt and table.sql
-- will retry failed downloads when launched the next time
+Program I used to backup soup.io posts
+- requires wget.exe 1.20.3
 
+Works in two modes:
+	1. by default saves posts from links stored in a text file (soup.txt)
+		- don't change order of lines in soup.txt and table.sql
+		- will retry failed downloads when launched the next time
+	
+	2. if you run it with parameter soup_backup.exe mysoup.soup.io
+		then it will download soup content (infinite scrolling must be disabled)
+		
+Metadata is saved to table.sql
+
+
+SQL commands to use to upload metadata to db:
 
 CREATE TABLE `soup_posts` (
   `id` int(11) NOT NULL,
@@ -454,22 +463,122 @@ string ReplaceAll(string str, const string& from, const string& to)
     return str;
 }
 
-
-
-
-int main(int argc, char *argv[]) 
-{
-	char default_file[] = "soup.txt";
-	char *filename = default_file;
+string parse_soup_post(string current_page, string download_location, string post_url="", string text_line="", int line_number=0) {
+	string records_line = "";
 	
-	if (argc > 1)
-		filename = argv[1];
+	enum POST_TYPES {
+		POST_UNKNOWN,
+		POST_TEXT,
+		POST_IMAGE,
+		POST_VIDEO
+	};
+
+	int post_type        = POST_UNKNOWN;
+	bool content_saved   = false;
+
+	string date = "";
+	if (line_number != 0) {
+		string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
+		current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
+	}
+	string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
+	string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
+	string video           = GetTextBetween(current_page, "<video", "</video>");
 	
-    
+	string body            = "";
+	string image_url       = "";
+	string image_url_small = "";
+	
+	if (!image_container.empty()) {
+		post_type       = POST_IMAGE;
+		image_url_small = GetTextBetween(image_container, "src=\"", "\"");
+		
+		if (image_container.find("lightbox") != string::npos)
+			image_url = GetTextBetween(image_container, "href=\"", "\"");
+		
+		if (image_url.empty())
+			image_url = image_url_small;
+		
+		
+		content_saved = DownloadAndMove(image_url, download_location)==0; 
+	} else 
+		if (!video.empty()) {
+			post_type     = POST_VIDEO;
+			image_url     = GetTextBetween(video, "src=\"", "\"");
+			content_saved = DownloadAndMove(image_url, download_location)==0; 
+		} else {
+			size_t body_pos = current_page.find("<span class=\"body\">");
+			
+			if (body_pos == string::npos)
+				body_pos = current_page.find("<div class=\"body\">");
+		
+			if (body_pos != string::npos) {
+				body          = current_page.substr(body_pos);
+				post_type     = POST_TEXT;
+				content_saved = true;
+			}
+		}
+	
+	string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
+	string source_url       = "";
+	
+	if (!source_container.empty())
+		source_url = GetTextBetween(source_container, "href=\"", "\"");
+		
+		
+	string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
+	string tags           = "";
+	
+	if (!tags_container.empty()) {
+		size_t offset     = 0;
+		string single_tag = "";
+		
+		do {
+			single_tag = GetTextBetweenOffset(tags_container, "</a>", ">", offset, true);
+			tags      += single_tag + " ";
+		} while (!single_tag.empty());
+	}
+	
+	if (!date.empty())
+		date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
+	else
+		date = "''";
+
+	if (content_saved) {
+		if (post_url.empty())
+			post_url = GetTextBetween(current_page, "<li class=\"first permalink\"><a href=\"", "\" title=\"Permalink\"");
+		
+		records_line = 
+		"('" + Trim(post_url) + 
+		"'," + Int2Str(post_type) + 
+		"," + date + 
+		",'" + HandleQuotes(body, "'", "\\'") + 
+		"','" + HandleQuotes(description, "'", "\\'") + 
+		"','" + image_url + 
+		"','" + image_url_small + 
+		"','" + source_url + 
+		"','" + Trim(tags) + 
+		"','" + ReplaceAll(download_location, "\\", "\\\\") + 
+		"','" + text_line + 
+		"'),";
+	} else {
+		if (post_type == POST_UNKNOWN) {
+			string new_name = Int2Str(line_number) + "unknown_post.htm";
+			MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
+			ERROR_MESSAGE = "UNKNOWN POST";
+		}
+		
+		cout << "Content not saved: " << ERROR_MESSAGE << endl;
+		records_line = "--ERROR - " + ERROR_MESSAGE;
+	}
+	
+	return records_line;
+}
+
+void soup_backup_from_txt(char *filename) {
     string save_file_new = "table_in_progress.sql";
     string save_file_old = "table.sql";
 	
-		
 	ofstream file_output;
 	file_output.open(save_file_new.c_str(), ios::out | ios::trunc);
 	file_output.close();
@@ -545,8 +654,8 @@ int main(int argc, char *argv[])
 				cout << "Line " << line_number << endl;
 				
 				records_line = "--ERROR";
-				string url = "";
-				size_t end = 0;
+				string url   = "";
+				size_t end   = 0;
 				
 				for (int i=protocol; i<text_line.length(); i++) {
 					end = i+1;
@@ -575,7 +684,8 @@ int main(int argc, char *argv[])
 					PAGE_OK,
 					PAGE_DELETED,
 					PAGE_HEAVYLOAD,
-					PAGE_PRIVATE
+					PAGE_PRIVATE,
+					PAGE_NSFW
 				};
 				
 				int page_status = PAGE_NOT_DOWNLOADED;
@@ -590,115 +700,18 @@ int main(int argc, char *argv[])
 							if (current_page.find("This soup is too private for you!") != string::npos)
 								page_status = PAGE_PRIVATE;
 							else
-								page_status = PAGE_OK;
+								if (current_page.find("The page that you are about to view was reported to contain") != string::npos)
+									page_status = PAGE_NSFW;
+								else
+									page_status = PAGE_OK;
 				}
 				
 				switch(page_status) {
-					case PAGE_OK : {
-						enum POST_TYPES {
-							POST_UNKNOWN,
-							POST_TEXT,
-							POST_IMAGE,
-							POST_VIDEO
-						};
-	
-						int post_type        = POST_UNKNOWN;
-						bool content_saved   = false;
-	
-						string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
-						current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
-						string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
-						string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
-						string video           = GetTextBetween(current_page, "<video", "</video>");
-						
-						string body            = "";
-						string image_url       = "";
-						string image_url_small = "";
-						
-						if (!image_container.empty()) {
-							post_type       = POST_IMAGE;
-							image_url_small = GetTextBetween(image_container, "src=\"", "\"");
-							
-							if (image_container.find("lightbox") != string::npos)
-								image_url = GetTextBetween(image_container, "href=\"", "\"");
-							
-							if (image_url.empty())
-								image_url = image_url_small;
-							
-							
-							content_saved = DownloadAndMove(image_url, path)==0; 
-						} else 
-							if (!video.empty()) {
-								post_type     = POST_VIDEO;
-								image_url     = GetTextBetween(video, "src=\"", "\"");
-								content_saved = DownloadAndMove(image_url, path)==0; 
-							} else {
-								size_t body_pos = current_page.find("<span class=\"body\">");
-								
-								if (body_pos == string::npos)
-									body_pos = current_page.find("<div class=\"body\">");
-							
-								if (body_pos != string::npos) {
-									body          = current_page.substr(body_pos);
-									post_type     = POST_TEXT;
-									content_saved = true;
-								}
-							}
-						
-						string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
-						string source_url       = "";
-						
-						if (!source_container.empty())
-							source_url = GetTextBetween(source_container, "href=\"", "\"");
-							
-							
-						string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
-						string tags           = "";
-						
-						if (!tags_container.empty()) {
-							size_t offset     = 0;
-							string single_tag = "";
-							
-							do {
-								single_tag = GetTextBetweenOffset(tags_container, "</a>", ">", offset, true);
-								tags      += single_tag + " ";
-							} while (!single_tag.empty());
-						}
-						
-						if (!date.empty())
-							date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
-						else
-							date = "''";
-	
-						if (content_saved) {						
-							records_line = 
-							"('" + Trim(post_url) + 
-							"'," + Int2Str(post_type) + 
-							"," + date + 
-							",'" + HandleQuotes(body, "'", "\\'") + 
-							"','" + HandleQuotes(description, "'", "\\'") + 
-							"','" + image_url + 
-							"','" + image_url_small + 
-							"','" + source_url + 
-							"','" + Trim(tags) + 
-							"','" + ReplaceAll(path, "\\", "\\\\") + 
-							"','" + HandleQuotes(Trim(text_line.substr(end)), "'", "\\'") + 
-							"'),";
-						} else {
-							if (post_type == POST_UNKNOWN) {
-								string new_name = Int2Str(line_number) + "unknown_post.htm";
-								MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
-								ERROR_MESSAGE = "UNKNOWN POST";
-							}
-							
-							cout << "Content not saved: " << ERROR_MESSAGE << endl;
-							records_line = "--ERROR - " + ERROR_MESSAGE;
-						}
-					} break;
-					
+					case PAGE_OK        : records_line = parse_soup_post(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number); break;
 					case PAGE_DELETED   : records_line = "--post deleted"; break;
 					case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
 					case PAGE_PRIVATE   : records_line = "--post private"; break;
+					case PAGE_NSFW      : records_line = "--post nsfw - download it manually"; break;
 					default             : records_line = "--ERROR - " + ERROR_MESSAGE;
 				}
 			} else
@@ -715,5 +728,97 @@ int main(int argc, char *argv[])
 	
 	file_records.close();
 	MoveFileEx(save_file_new.c_str(), save_file_old.c_str(), MOVEFILE_REPLACE_EXISTING);
+}
+
+
+
+
+
+
+void soup_backup_from_web(char *soupname) {
+	CreateDirectory(soupname, NULL);
+	
+	string url          = "https://" + (string)soupname;
+	string current_page = "";
+	int page_num        = 0;
+	string next_page    = "";
+	int result          = 0;
+
+	do {
+		cout << "Page: " << page_num << endl;
+		
+		string page_name = "soup_page" + Int2Str(page_num) + ".htm";
+		
+		if (GetFileAttributes(page_name.c_str()) == INVALID_FILE_ATTRIBUTES) {
+			do {
+				result = 0;
+				current_page = "";
+				Sleep(1000);
+				
+				int result = Get(url, page_name, current_page);
+				//int result = Read(page_name, current_page);
+				if (result != 0) {
+					cout << url << " - " << ERROR_MESSAGE << endl;
+					DeleteFile(page_name.c_str());
+				}
+			} while (result != 0);
+			
+			string error_messages[] = {
+				"Currently, soup.io is under heavy usage",
+				"This soup is too private for you!",
+				"The page that you are about to view was reported to contain"
+			};
+					
+			for (int i=0; i<3; i++)
+				if (current_page.find(error_messages[i]) != string::npos) {
+					cout << url << endl << error_messages[i] << endl;
+					goto end;
+				}
+								
+			size_t offset = 0;
+			string post_content = "";
+			do {
+				post_content = GetTextBetweenOffset(current_page, "<!--soup _post_full.html -->", "<!--soup _post_html.html -->", offset, false);
+				
+				if (!post_content.empty()) {
+					ofstream file_output;
+					file_output.open("table.sql", ios::out | ios::app);
+					if (file_output.is_open()) {
+						file_output << parse_soup_post(post_content, soupname) << endl;
+						file_output.close();				
+					}
+				}
+				
+				offset++;
+			} while (!post_content.empty());
+		} else {
+			Read(page_name, current_page);
+		}
+
+		next_page = GetTextBetween(current_page, "<a class=\"more keephash\" href=\"", "\"");
+		url = "https://" + (string)soupname + next_page;
+		page_num++;
+	} while (!next_page.empty());
+	
+	end:
+	return;
+}
+
+
+
+
+int main(int argc, char *argv[]) 
+{
+	char default_file[] = "soup.txt";
+	char *filename = default_file;
+	
+	if (argc > 1)
+		filename = argv[1];
+	
+	if (strstr(filename, ".soup.io"))
+		soup_backup_from_web(filename);
+	else
+		soup_backup_from_txt(filename);
+
 	return 0;
 }
