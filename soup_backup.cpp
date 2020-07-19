@@ -4,13 +4,13 @@ Program I used to backup soup.io posts
 
 Works in two modes:
 	1. by default saves posts from links stored in a text file (soup.txt)
-		- don't change order of lines in soup.txt and table.sql
-		- will retry failed downloads when launched the next time
+		don't change order of lines in soup.txt and table.sql
 	
-	2. if you run it with parameter soup_backup.exe mysoup.soup.io
+	2. if you run it with your soup name:  soup_backup.exe mysoup.soup.io
 		then it will download soup content (infinite scrolling must be disabled)
 		
 Metadata is saved to table.sql
+Will retry failed downloads when you launch it the second time.
 
 
 SQL commands to use to upload metadata to db:
@@ -422,6 +422,15 @@ int DownloadAndMove(string url, string path)
 {
 	if (path.empty())
 		path = ".";
+		
+	size_t slash = url.find_last_of("/");
+	
+	if (slash != string::npos) {
+		string file_name = path + "/" + url.substr(slash+1);
+		
+		if (GetFileAttributes(file_name.c_str()) != INVALID_FILE_ATTRIBUTES)
+			return 0;
+	}
 	
 	int result = Download(url, "", false);
 	
@@ -476,11 +485,7 @@ string parse_soup_post(string current_page, string download_location, string pos
 	int post_type        = POST_UNKNOWN;
 	bool content_saved   = false;
 
-	string date = "";
-	if (line_number != 0) {
-		string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");			
-		current_page           = GetTextBetween(current_page, "<!--soup _post_full.html -->", "<!--soup _post_actions.html -->");
-	}
+	string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");
 	string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
 	string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
 	string video           = GetTextBetween(current_page, "<video", "</video>");
@@ -498,7 +503,6 @@ string parse_soup_post(string current_page, string download_location, string pos
 		
 		if (image_url.empty())
 			image_url = image_url_small;
-		
 		
 		content_saved = DownloadAndMove(image_url, download_location)==0; 
 	} else 
@@ -566,6 +570,8 @@ string parse_soup_post(string current_page, string download_location, string pos
 			string new_name = Int2Str(line_number) + "unknown_post.htm";
 			MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
 			ERROR_MESSAGE = "UNKNOWN POST";
+			
+			cout << GetTextBetween(current_page, "<div class=\"icon type\"><a href=\"", "\" title") << endl;
 		}
 		
 		cout << "Content not saved: " << ERROR_MESSAGE << endl;
@@ -707,7 +713,13 @@ void soup_backup_from_txt(char *filename) {
 				}
 				
 				switch(page_status) {
-					case PAGE_OK        : records_line = parse_soup_post(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number); break;
+					case PAGE_OK        : {
+						if (line_number != 0)
+							current_page = GetTextBetween(current_page, "<div id=\"post", "<!--soup _post_actions.html -->");
+						
+						records_line = parse_soup_post(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
+						break;
+					}
 					case PAGE_DELETED   : records_line = "--post deleted"; break;
 					case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
 					case PAGE_PRIVATE   : records_line = "--post private"; break;
@@ -743,11 +755,25 @@ void soup_backup_from_web(char *soupname) {
 	int page_num        = 0;
 	string next_page    = "";
 	int result          = 0;
+	vector<string> posts;
+	
+	ifstream file_output;
+	file_output.open("table.sql", ios::in);
+	if (file_output.is_open()) {
+		string text_line;
+		getline(file_output, text_line);
+		string id;
+		GetTextBetween(id, ".soup.io/post/", "/");
+		if (!id.empty())
+			posts.push_back(id);
+		file_output.close();				
+	}
 
 	do {
 		cout << "Page: " << page_num << endl;
 		
 		string page_name = "soup_page" + Int2Str(page_num) + ".htm";
+		int result = 0;
 		
 		if (GetFileAttributes(page_name.c_str()) == INVALID_FILE_ATTRIBUTES) {
 			do {
@@ -755,32 +781,59 @@ void soup_backup_from_web(char *soupname) {
 				current_page = "";
 				Sleep(1000);
 				
-				int result = Get(url, page_name, current_page);
-				//int result = Read(page_name, current_page);
+				result = Get(url, page_name, current_page);
+				//result = Read(page_name, current_page);
 				if (result != 0) {
 					cout << url << " - " << ERROR_MESSAGE << endl;
 					DeleteFile(page_name.c_str());
 				}
+				cout << "result: " << result << endl;
 			} while (result != 0);
+		} else {
+			result = Read(page_name, current_page);
+		}
+
+		if (result != 0) {
+			cout << "Failure, ending program" << endl;
+			break;
+		}
+		
+		string error_messages[] = {
+			"Currently, soup.io is under heavy usage",
+			"This soup is too private for you!",
+			"The page that you are about to view was reported to contain"
+		};
 			
-			string error_messages[] = {
-				"Currently, soup.io is under heavy usage",
-				"This soup is too private for you!",
-				"The page that you are about to view was reported to contain"
-			};
-					
-			for (int i=0; i<3; i++)
-				if (current_page.find(error_messages[i]) != string::npos) {
-					cout << url << endl << error_messages[i] << endl;
-					goto end;
-				}
-								
-			size_t offset = 0;
-			string post_content = "";
-			do {
-				post_content = GetTextBetweenOffset(current_page, "<!--soup _post_full.html -->", "<!--soup _post_html.html -->", offset, false);
+		for (int i=0; i<3; i++)
+			if (current_page.find(error_messages[i]) != string::npos) {
+				cout << url << endl << error_messages[i] << endl;
+				goto end;
+			}
+							
+		size_t offset = current_page.find("<div id=\"posts\">");
+		
+		if (offset != string::npos)
+			offset++;
+		else
+			offset = 0;
+		
+		string post_content = "";
+		do {
+			post_content = GetTextBetweenOffset(current_page, "<div id=\"post", "<!--soup _post_html.html -->", offset, false);
+			
+			if (!post_content.empty()) {
+				string post_id = post_content.substr(0, post_content.find("\""));
 				
-				if (!post_content.empty()) {
+				bool found = false;
+				
+				for (int i=0; i<posts.size(); i++)
+					if (post_id == posts[i]) {
+						cout << "found " << post_id << endl;
+						found = true;
+						break;
+					}
+				
+				if (!found) {
 					ofstream file_output;
 					file_output.open("table.sql", ios::out | ios::app);
 					if (file_output.is_open()) {
@@ -788,13 +841,11 @@ void soup_backup_from_web(char *soupname) {
 						file_output.close();				
 					}
 				}
-				
-				offset++;
-			} while (!post_content.empty());
-		} else {
-			Read(page_name, current_page);
-		}
-
+			}
+			
+			offset++;
+		} while (!post_content.empty());
+		
 		next_page = GetTextBetween(current_page, "<a class=\"more keephash\" href=\"", "\"");
 		url = "https://" + (string)soupname + next_page;
 		page_num++;
@@ -820,5 +871,6 @@ int main(int argc, char *argv[])
 	else
 		soup_backup_from_txt(filename);
 
+	system("pause");
 	return 0;
 }
