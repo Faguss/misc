@@ -244,6 +244,8 @@ int ParseWgetLog(string &error)
 	return 0;
 }
 
+
+	// Use wget to download a file
 int Download(string url, string filename, bool overwrite=true) 
 {
 	if (!filename.empty() && overwrite)
@@ -298,6 +300,8 @@ int Download(string url, string filename, bool overwrite=true)
 	return exit_code;
 }
 
+
+	// Read text file intro string buffer
 int Read(string filename, string &buffer) {
 	buffer = "";		
 	fstream file;
@@ -316,6 +320,8 @@ int Read(string filename, string &buffer) {
 	return 0;	
 }
 
+
+	// Download and read file
 int Get(string url, string filename, string &buffer, bool overwrite=true)
 {
 	int result = Download(url, filename, overwrite);
@@ -326,6 +332,8 @@ int Get(string url, string filename, string &buffer, bool overwrite=true)
 	return Read(filename, buffer);
 }
 
+
+	// Return text between delimiters
 string GetTextBetween(string &buffer, string start, string end, bool reverse=false)
 {
 	string out    = "";
@@ -357,6 +365,8 @@ string GetTextBetween(string &buffer, string start, string end, bool reverse=fal
 	return out;
 }
 
+
+	// Return text between delimiters (for use in loops)
 string GetTextBetweenOffset(string &buffer, string start, string end, size_t &offset, bool reverse=false)
 {
 	string out  = "";
@@ -387,6 +397,8 @@ string GetTextBetweenOffset(string &buffer, string start, string end, size_t &of
 	return out;
 }
 
+
+	// Trim
 string HandleQuotes(string str, const string& from, const string& to) 
 {
 	if (from.empty())
@@ -418,6 +430,8 @@ wstring string2wide(const string& input)
 	return output;
 }
 
+
+	// Download file and move it to the folder
 int DownloadAndMove(string url, string path) 
 {
 	if (path.empty())
@@ -472,7 +486,8 @@ string ReplaceAll(string str, const string& from, const string& to)
     return str;
 }
 
-string parse_soup_post(string current_page, string download_location, string post_url="", string text_line="", int line_number=0) {
+	// Download content from the soup post html and return metadata
+string ParseSoupPost(string soup_post, string download_location, string post_url="", string text_line="", int line_number=0) {
 	string records_line = "";
 	
 	enum POST_TYPES {
@@ -482,44 +497,45 @@ string parse_soup_post(string current_page, string download_location, string pos
 		POST_VIDEO
 	};
 
-	int post_type        = POST_UNKNOWN;
-	bool content_saved   = false;
-
-	string date            = GetTextBetween(current_page, "<span class=\"time\"><abbr title=\"", "\"");
-	string description     = GetTextBetween(current_page, "<div class=\"description\">", "</div>");
-	string image_container = GetTextBetween(current_page, "<div class=\"imagecontainer\"", "</div>");
-	string video           = GetTextBetween(current_page, "<video", "</video>");
-	
+	int post_type          = POST_UNKNOWN;
+	bool content_saved     = false;
 	string body            = "";
 	string image_url       = "";
 	string image_url_small = "";
 	
-	if (!image_container.empty()) {
+	
+	// Determine post type (image, video or text)
+	string container_image = GetTextBetween(soup_post, "<div class=\"imagecontainer\"", "</div>");
+	string container_video = GetTextBetween(soup_post, "<video", "</video>");
+	
+	if (!container_image.empty()) {
 		post_type       = POST_IMAGE;
-		image_url_small = GetTextBetween(image_container, "src=\"", "\"");
+		image_url_small = GetTextBetween(container_image, "src=\"", "\"");
 		
-		if (image_container.find("lightbox") != string::npos)
-			image_url = GetTextBetween(image_container, "href=\"", "\"");
+		// check if there's a link to higher resolution image
+		if (container_image.find("lightbox") != string::npos)
+			image_url = GetTextBetween(container_image, "href=\"", "\"");
 		
 		if (image_url.empty())
 			image_url = image_url_small;
 		
 		content_saved = DownloadAndMove(image_url, download_location)==0; 
 	} else 
-		if (!video.empty()) {
+		if (!container_video.empty()) {
 			post_type     = POST_VIDEO;
-			image_url     = GetTextBetween(video, "src=\"", "\"");
+			image_url     = GetTextBetween(container_video, "src=\"", "\"");
 			content_saved = DownloadAndMove(image_url, download_location)==0; 
 		} else {
 			vector<string> tags_to_find;
-			tags_to_find.push_back("<span class=\"body\">");
-			tags_to_find.push_back("<div class=\"body\">");
-			tags_to_find.push_back("<div class=\"description\">");
+			tags_to_find.push_back("<span class=\"body\"");
+			tags_to_find.push_back("<div class=\"body\"");
+			tags_to_find.push_back("<div class=\"description\"");
 			
 			for (int i=0; i<tags_to_find.size(); i++) {
-				size_t body_pos = current_page.find(tags_to_find[i]);
+				size_t body_pos = soup_post.find(tags_to_find[i]);
+				
 				if (body_pos != string::npos) {
-					body          = current_page.substr(body_pos);
+					body          = soup_post.substr(body_pos);
 					post_type     = POST_TEXT;
 					content_saved = true;
 					break;
@@ -527,14 +543,20 @@ string parse_soup_post(string current_page, string download_location, string pos
 			}
 		}
 	
-	string source_container = GetTextBetween(current_page, "<div class=\"caption\">", "</div>");
+	
+	// Get text under the image	
+	string description = GetTextBetween(soup_post, "<div class=\"description\">", "</div>");
+	
+	// Get image source link
+	string source_container = GetTextBetween(soup_post, "<div class=\"caption\">", "</div>");
 	string source_url       = "";
 	
 	if (!source_container.empty())
 		source_url = GetTextBetween(source_container, "href=\"", "\"");
 		
-		
-	string tags_container = GetTextBetween(current_page, "<div class=\"tags\">", "</div>");
+	
+	// Get post tags
+	string tags_container = GetTextBetween(soup_post, "<div class=\"tags\">", "</div>");
 	string tags           = "";
 	
 	if (!tags_container.empty()) {
@@ -547,14 +569,20 @@ string parse_soup_post(string current_page, string download_location, string pos
 		} while (!single_tag.empty());
 	}
 	
+	
+	// Get post date
+	string date = GetTextBetween(soup_post, "<span class=\"time\"><abbr title=\"", "\"");
+	
 	if (!date.empty())
 		date = "STR_TO_DATE('" + date + "','%b %d %Y %T UTC')";
 	else
 		date = "''";
+	
 
+	// Return metadata or error
 	if (content_saved) {
 		if (post_url.empty())
-			post_url = GetTextBetween(current_page, "<li class=\"first permalink\"><a href=\"", "\" title=\"Permalink\"");
+			post_url = GetTextBetween(soup_post, "<li class=\"first permalink\"><a href=\"", "\" title=\"Permalink\"");
 		
 		records_line = 
 		"('" + Trim(post_url) + 
@@ -575,7 +603,7 @@ string parse_soup_post(string current_page, string download_location, string pos
 			MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
 			ERROR_MESSAGE = "UNKNOWN POST";
 			
-			cout << GetTextBetween(current_page, "<div class=\"icon type\"><a href=\"", "\" title") << endl;
+			cout << GetTextBetween(soup_post, "<div class=\"icon type\"><a href=\"", "\" title") << endl;
 		}
 		
 		cout << "Content not saved: " << ERROR_MESSAGE << endl;
@@ -585,7 +613,9 @@ string parse_soup_post(string current_page, string download_location, string pos
 	return records_line;
 }
 
-void soup_backup_from_txt(char *filename) {
+
+	// Mode 1: read text file containing soup links and download content
+void SoupBackupFromTxt(char *filename) {
     string save_file_new = "table_in_progress.sql";
     string save_file_old = "table.sql";
 	
@@ -617,6 +647,7 @@ void soup_backup_from_txt(char *filename) {
 			line_number++;
 			
 			
+			// Detect if it's a soup link
 			size_t protocol    = text_line.find("http");
 			size_t soup_link   = text_line.find("soup.io/post");
 			size_t asset_link  = text_line.find("soup.io/asset");
@@ -625,10 +656,14 @@ void soup_backup_from_txt(char *filename) {
 			if (protocol!=string::npos && protocol>0 && !isspace(text_line.at(protocol-1)))
 				protocol = string::npos;
 
-			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos  ||  asset_link!=string::npos;
+			bool is_valid_link   = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos  ||  asset_link!=string::npos;
+			
+			string post_id       = GetTextBetween(text_line, "/post/", "/");
+			string predownloaded = post_id + ".htm";
+			bool local_file      = !post_id.empty() && GetFileAttributes(predownloaded.c_str())!=INVALID_FILE_ATTRIBUTES;
 			
 
-			
+			// If it's a new category - create folder
 			if (protocol == string::npos) {
 				if (text_line[0] == '-' || text_line[0] == '=') {
 					category_separator = true;
@@ -663,22 +698,23 @@ void soup_backup_from_txt(char *filename) {
 			}
 
 
-			string post_id       = GetTextBetween(text_line, "/post/", "/");
-			string predownloaded = post_id + ".htm";
-			bool local_file      = !post_id.empty() && GetFileAttributes(predownloaded.c_str())!=INVALID_FILE_ATTRIBUTES;
-			
+			// If valid link then download post
 			if (((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) || local_file) {
 				cout << "Line " << line_number << endl;
+				
 				records_line = "--ERROR";
 				string url   = "";
 				size_t end   = 0;
 				
+				// Find url end
 				for (int i=protocol; i<text_line.length(); i++) {
 					end = i+1;
 					if (isspace(text_line.at(i)))
 						break;
 				}
 				
+				
+				// If it's an asset link then find post url
 				if (direct_link != string::npos || asset_link != string::npos) {
 					size_t asset2 = text_line.find("/asset/");
 					
@@ -687,10 +723,12 @@ void soup_backup_from_txt(char *filename) {
 				} else
 					url = text_line.substr(protocol, end-protocol);
 				
-				string current_page  = "";
-				string post_url = url;
-				int result = 1;
+				string current_page = "";
+				string post_url     = url;
+				int result          = 1;
 
+
+				// If a file with this post number exists then read it instead of downloading
 				if (local_file) {
 					cout << "Reading local page " << predownloaded << " instead of downloading" << endl;
 					result = Read(predownloaded.c_str(), current_page);
@@ -699,10 +737,9 @@ void soup_backup_from_txt(char *filename) {
 					result   = Get(url, "current_page.htm", current_page);
 					post_url = DOWNLOADED_URL;			
 				}
-				
-				//int result      = Read("current_page.htm", current_page)
-				//string post_url = url;
-				
+
+
+				// Determine if downloaded file is valid
 				enum PAGE_STATUS {
 					PAGE_NOT_DOWNLOADED,
 					PAGE_OK,
@@ -730,12 +767,14 @@ void soup_backup_from_txt(char *filename) {
 									page_status = PAGE_OK;
 				}
 				
+				
+				// Parse it
 				switch(page_status) {
 					case PAGE_OK        : {
 						if (line_number != 0)
 							current_page = GetTextBetween(current_page, "<div id=\"post", "<!--soup _post_actions.html -->");
 						
-						records_line = parse_soup_post(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
+						records_line = ParseSoupPost(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
 						break;
 					}
 					case PAGE_DELETED   : records_line = "--post deleted"; break;
@@ -748,6 +787,8 @@ void soup_backup_from_txt(char *filename) {
 				if (!is_valid_link)
 					records_line = "-- " + text_line;
 			
+			
+			// Save the result
 			file_output.open(save_file_new.c_str(), ios::out | ios::app);
 			file_output << records_line << endl;
 			file_output.close();
@@ -764,8 +805,8 @@ void soup_backup_from_txt(char *filename) {
 
 
 
-
-void soup_backup_from_web(char *soupname) {
+	// Download soup pages, detect posts and download their content
+void SoupBackupFromWeb(char *soupname) {
 	CreateDirectory(soupname, NULL);
 	
 	string url          = "https://" + (string)soupname;
@@ -777,45 +818,55 @@ void soup_backup_from_web(char *soupname) {
 	
 	ifstream file_output;
 	file_output.open("table.sql", ios::in);
+	
+	// Create array with post ids so we can check later if post was already saved
 	if (file_output.is_open()) {
 		string text_line;
 		getline(file_output, text_line);
 		string id;
+		
 		GetTextBetween(id, ".soup.io/post/", "/");
+		
 		if (!id.empty())
 			posts.push_back(id);
+			
 		file_output.close();				
 	}
 
+
+	// While there's link to another page
 	do {
 		cout << "Page: " << page_num << endl;
 		
 		string page_name = "soup_page" + Int2Str(page_num) + ".htm";
-		int result = 0;
+		int result       = 0;
 		
+		// Download page or read if it was already downloaded
 		if (GetFileAttributes(page_name.c_str()) == INVALID_FILE_ATTRIBUTES) {
 			do {
-				result = 0;
+				result       = 0;
 				current_page = "";
 				Sleep(1000);
 				
 				result = Get(url, page_name, current_page);
-				//result = Read(page_name, current_page);
+
 				if (result != 0) {
 					cout << url << " - " << ERROR_MESSAGE << endl;
 					DeleteFile(page_name.c_str());
 				}
+				
 				cout << "result: " << result << endl;
 			} while (result != 0);
-		} else {
+		} else
 			result = Read(page_name, current_page);
-		}
 
 		if (result != 0) {
 			cout << "Failure, ending program" << endl;
 			break;
 		}
 		
+		
+		// Check if page is valid
 		string error_messages[] = {
 			"Currently, soup.io is under heavy usage",
 			"This soup is too private for you!",
@@ -827,7 +878,9 @@ void soup_backup_from_web(char *soupname) {
 				cout << url << endl << error_messages[i] << endl;
 				goto end;
 			}
-							
+		
+		
+		// After this tag posts begin					
 		size_t offset = current_page.find("<div id=\"posts\">");
 		
 		if (offset != string::npos)
@@ -835,13 +888,17 @@ void soup_backup_from_web(char *soupname) {
 		else
 			offset = 0;
 		
+		
+		// Parse each post from a page
 		string post_content = "";
+		
 		do {
 			post_content = GetTextBetweenOffset(current_page, "<div id=\"post", "<!--soup _post_html.html -->", offset, false);
 			
 			if (!post_content.empty()) {
 				string post_id = post_content.substr(0, post_content.find("\""));
 				
+				// Check if post was already saved
 				bool found = false;
 				
 				for (int i=0; i<posts.size(); i++)
@@ -851,11 +908,13 @@ void soup_backup_from_web(char *soupname) {
 						break;
 					}
 				
+				// Parse and save the result
 				if (!found) {
 					ofstream file_output;
 					file_output.open("table.sql", ios::out | ios::app);
+					
 					if (file_output.is_open()) {
-						file_output << parse_soup_post(post_content, soupname) << endl;
+						file_output << ParseSoupPost(post_content, soupname) << endl;
 						file_output.close();				
 					}
 				}
@@ -864,8 +923,9 @@ void soup_backup_from_web(char *soupname) {
 			offset++;
 		} while (!post_content.empty());
 		
+		// Find "More" link
 		next_page = GetTextBetween(current_page, "<a class=\"more keephash\" href=\"", "\"");
-		url = "https://" + (string)soupname + next_page;
+		url       = "https://" + (string)soupname + next_page;
 		page_num++;
 	} while (!next_page.empty());
 	
@@ -879,15 +939,15 @@ void soup_backup_from_web(char *soupname) {
 int main(int argc, char *argv[]) 
 {
 	char default_file[] = "soup.txt";
-	char *filename = default_file;
+	char *filename      = default_file;
 	
 	if (argc > 1)
 		filename = argv[1];
 	
 	if (strstr(filename, ".soup.io"))
-		soup_backup_from_web(filename);
+		SoupBackupFromWeb(filename);
 	else
-		soup_backup_from_txt(filename);
+		SoupBackupFromTxt(filename);
 
 	system("pause");
 	return 0;
