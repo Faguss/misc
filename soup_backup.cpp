@@ -511,15 +511,19 @@ string parse_soup_post(string current_page, string download_location, string pos
 			image_url     = GetTextBetween(video, "src=\"", "\"");
 			content_saved = DownloadAndMove(image_url, download_location)==0; 
 		} else {
-			size_t body_pos = current_page.find("<span class=\"body\">");
+			vector<string> tags_to_find;
+			tags_to_find.push_back("<span class=\"body\">");
+			tags_to_find.push_back("<div class=\"body\">");
+			tags_to_find.push_back("<div class=\"description\">");
 			
-			if (body_pos == string::npos)
-				body_pos = current_page.find("<div class=\"body\">");
-		
-			if (body_pos != string::npos) {
-				body          = current_page.substr(body_pos);
-				post_type     = POST_TEXT;
-				content_saved = true;
+			for (int i=0; i<tags_to_find.size(); i++) {
+				size_t body_pos = current_page.find(tags_to_find[i]);
+				if (body_pos != string::npos) {
+					body          = current_page.substr(body_pos);
+					post_type     = POST_TEXT;
+					content_saved = true;
+					break;
+				}
 			}
 		}
 	
@@ -615,13 +619,15 @@ void soup_backup_from_txt(char *filename) {
 			
 			size_t protocol    = text_line.find("http");
 			size_t soup_link   = text_line.find("soup.io/post");
+			size_t asset_link  = text_line.find("soup.io/asset");
 			size_t direct_link = text_line.find("soupcdn.com/");
 			
 			if (protocol!=string::npos && protocol>0 && !isspace(text_line.at(protocol-1)))
 				protocol = string::npos;
 
-			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos;
+			bool is_valid_link = (protocol!=string::npos  &&  soup_link!=string::npos)  ||  direct_link!=string::npos  ||  asset_link!=string::npos;
 			
+
 			
 			if (protocol == string::npos) {
 				if (text_line[0] == '-' || text_line[0] == '=') {
@@ -656,9 +662,13 @@ void soup_backup_from_txt(char *filename) {
 				}
 			}
 
-			if ((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) {
+
+			string post_id       = GetTextBetween(text_line, "/post/", "/");
+			string predownloaded = post_id + ".htm";
+			bool local_file      = !post_id.empty() && GetFileAttributes(predownloaded.c_str())!=INVALID_FILE_ATTRIBUTES;
+			
+			if (((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) || local_file) {
 				cout << "Line " << line_number << endl;
-				
 				records_line = "--ERROR";
 				string url   = "";
 				size_t end   = 0;
@@ -669,7 +679,7 @@ void soup_backup_from_txt(char *filename) {
 						break;
 				}
 				
-				if (direct_link != string::npos) {
+				if (direct_link != string::npos || asset_link != string::npos) {
 					size_t asset2 = text_line.find("/asset/");
 					
 					if (asset2 != string::npos)
@@ -677,10 +687,18 @@ void soup_backup_from_txt(char *filename) {
 				} else
 					url = text_line.substr(protocol, end-protocol);
 				
-				Sleep(2000);
-				string current_page = "";
-				int result          = Get(url, "current_page.htm", current_page);
-				string post_url     = DOWNLOADED_URL;
+				string current_page  = "";
+				string post_url = url;
+				int result = 1;
+
+				if (local_file) {
+					cout << "Reading local page " << predownloaded << " instead of downloading" << endl;
+					result = Read(predownloaded.c_str(), current_page);
+				} else {
+					Sleep(2000);
+					result   = Get(url, "current_page.htm", current_page);
+					post_url = DOWNLOADED_URL;			
+				}
 				
 				//int result      = Read("current_page.htm", current_page)
 				//string post_url = url;
@@ -695,7 +713,7 @@ void soup_backup_from_txt(char *filename) {
 				};
 				
 				int page_status = PAGE_NOT_DOWNLOADED;
-				
+
 				if (result == 0) {
 					if (post_url.find("/post/") == string::npos)
 						page_status = PAGE_DELETED;
@@ -722,8 +740,8 @@ void soup_backup_from_txt(char *filename) {
 					}
 					case PAGE_DELETED   : records_line = "--post deleted"; break;
 					case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
-					case PAGE_PRIVATE   : records_line = "--post private"; break;
-					case PAGE_NSFW      : records_line = "--post nsfw - download it manually"; break;
+					case PAGE_PRIVATE   : records_line = "--post private - download it manually as " + post_id + ".htm and run the program again"; break;
+					case PAGE_NSFW      : records_line = "--post nsfw - download it manually as " + post_id + ".htm and run the program again"; break;
 					default             : records_line = "--ERROR - " + ERROR_MESSAGE;
 				}
 			} else
