@@ -614,20 +614,27 @@ string ParseSoupPost(string soup_post, string download_location, string post_url
 }
 
 
+enum PASS_TYPE {
+	FIRST_PASS,
+	SECOND_PASS
+};
+
 	// Mode 1: read text file containing soup links and download content
-void SoupBackupFromTxt(char *filename) {
+void SoupBackupFromTxt(char *filename, int pass_type) {
     string save_file_new = "table_in_progress.sql";
     string save_file_old = "table.sql";
 	
 	ofstream file_output;
-	file_output.open(save_file_new.c_str(), ios::out | ios::trunc);
-	file_output.close();
+	file_output.open(pass_type==FIRST_PASS ? "hosts.txt" : save_file_new.c_str(), ios::out | ios::trunc);
+	file_output.close();	
 
-    fstream file_input;
+    ifstream file_input;
     file_input.open(filename, ios::in);
     
     ifstream file_records;
     file_records.open(save_file_old.c_str(), ios::in);
+    
+    vector<string> domains;
     
 	if (file_input.is_open()) {
         int line_number          = 0;
@@ -662,136 +669,165 @@ void SoupBackupFromTxt(char *filename) {
 			string predownloaded = post_id + ".htm";
 			bool local_file      = !post_id.empty() && GetFileAttributes(predownloaded.c_str())!=INVALID_FILE_ATTRIBUTES;
 			
-
-			// If it's a new category - create folder
-			if (protocol == string::npos) {
-				if (text_line[0] == '-' || text_line[0] == '=') {
-					category_separator = true;
-					path = "";
-				}
+			
+			// Make a list of domains
+			string soup_domain = GetTextBetween(text_line, "://", "/post/");
+			
+			if (pass_type==FIRST_PASS && soup_link!=string::npos && !soup_domain.empty()) {
+				bool found = false;
 				
-				if (text_line[0] == '\t' && !Trim(text_line).empty()) {				
-					char illegal_chars[] = "\t\\/<>|\":?*";
+				for (int i=0; i<domains.size() && !found; i++)
+					if (soup_domain == domains[i])
+						found = true;
+						
+				if (!found) {
+					domains.push_back(soup_domain);
+				
+					ofstream file_hosts;
+					file_hosts.open("hosts.txt", ios::out | ios::app);
 					
-					for (int i=0; i<text_line.length(); i++) {
-						for (int j=0; j<strlen(illegal_chars); j++) {
-							if (text_line[i] == illegal_chars[j])
-								text_line[i] = ' ';
-						}
-					}
-					
-					text_line = Trim(text_line).substr(0, 100);
-					
-					if (category_separator) {
-						category_separator  = false;
-						category_name       = text_line;
-						path                = category_name;
-						wstring source_wide = string2wide(path);
-						CreateDirectoryW(source_wide.c_str(), NULL);
-					} else {
-						sub_category_name   = text_line;
-						path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
-						wstring source_wide = string2wide(path);
-						CreateDirectoryW(source_wide.c_str(), NULL);
+					if (file_hosts.is_open()) {
+						file_hosts << "45.153.143.247     " << soup_domain << endl;
+						file_hosts.close();
 					}
 				}
 			}
-
-
-			// If valid link then download post
-			if (((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) || local_file) {
-				cout << "Line " << line_number << endl;
-				
-				records_line = "--ERROR";
-				string url   = "";
-				size_t end   = 0;
-				
-				// Find url end
-				for (int i=protocol; i<text_line.length(); i++) {
-					end = i+1;
-					if (isspace(text_line.at(i)))
-						break;
-				}
-				
-				
-				// If it's an asset link then find post url
-				if (direct_link != string::npos || asset_link != string::npos) {
-					size_t asset2 = text_line.find("/asset/");
-					
-					if (asset2 != string::npos)
-						url = "https://whatthepost.soup.io" + text_line.substr(asset2, end-asset2);
-				} else
-					url = text_line.substr(protocol, end-protocol);
-				
-				string current_page = "";
-				string post_url     = url;
-				int result          = 1;
-
-
-				// If a file with this post number exists then read it instead of downloading
-				if (local_file) {
-					cout << "Reading local page " << predownloaded << " instead of downloading" << endl;
-					result = Read(predownloaded.c_str(), current_page);
-				} else {
-					Sleep(2000);
-					result   = Get(url, "current_page.htm", current_page);
-					post_url = DOWNLOADED_URL;			
-				}
-
-
-				// Determine if downloaded file is valid
-				enum PAGE_STATUS {
-					PAGE_NOT_DOWNLOADED,
-					PAGE_OK,
-					PAGE_DELETED,
-					PAGE_HEAVYLOAD,
-					PAGE_PRIVATE,
-					PAGE_NSFW
-				};
-				
-				int page_status = PAGE_NOT_DOWNLOADED;
-
-				if (result == 0) {
-					if (post_url.find("/post/") == string::npos)
-						page_status = PAGE_DELETED;
-					else						
-						if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
-							page_status = PAGE_HEAVYLOAD;
-						else
-							if (current_page.find("This soup is too private for you!") != string::npos)
-								page_status = PAGE_PRIVATE;
-							else
-								if (current_page.find("The page that you are about to view was reported to contain") != string::npos)
-									page_status = PAGE_NSFW;
-								else
-									page_status = PAGE_OK;
-				}
-				
-				
-				// Parse it
-				switch(page_status) {
-					case PAGE_OK        : {
-						if (line_number != 0)
-							current_page = GetTextBetween(current_page, "<div id=\"post", "<!--soup _post_actions.html -->");
-						
-						records_line = ParseSoupPost(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
-						break;
+			
+			
+			// Download content
+			if (pass_type == SECOND_PASS) {
+				// If it's a new category - create folder
+				if (protocol == string::npos) {
+					if (text_line[0] == '-' || text_line[0] == '=') {
+						category_separator = true;
+						path = "";
 					}
-					case PAGE_DELETED   : records_line = "--post deleted"; break;
-					case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
-					case PAGE_PRIVATE   : records_line = "--post private - download it manually as " + post_id + ".htm and run the program again"; break;
-					case PAGE_NSFW      : records_line = "--post nsfw - download it manually as " + post_id + ".htm and run the program again"; break;
-					default             : records_line = "--ERROR - " + ERROR_MESSAGE;
+					
+					if (text_line[0] == '\t' && !Trim(text_line).empty()) {				
+						char illegal_chars[] = "\t\\/<>|\":?*";
+						
+						for (int i=0; i<text_line.length(); i++) {
+							for (int j=0; j<strlen(illegal_chars); j++) {
+								if (text_line[i] == illegal_chars[j])
+									text_line[i] = ' ';
+							}
+						}
+						
+						text_line = Trim(text_line).substr(0, 100);
+						
+						if (category_separator) {
+							category_separator  = false;
+							category_name       = text_line;
+							path                = category_name;
+							wstring source_wide = string2wide(path);
+							CreateDirectoryW(source_wide.c_str(), NULL);
+						} else {
+							sub_category_name   = text_line;
+							path                = (category_name.empty() ? "." : category_name) + "\\" + sub_category_name;
+							wstring source_wide = string2wide(path);
+							CreateDirectoryW(source_wide.c_str(), NULL);
+						}
+					}
 				}
-			} else
-				if (!is_valid_link)
-					records_line = "-- " + text_line;
+	
+	
+				// If valid link then download post
+				if (((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) || local_file) {
+					cout << "Line " << line_number << endl;
+					
+					records_line = "--ERROR";
+					string url   = "";
+					size_t end   = 0;
+					
+					// Find url end
+					for (int i=protocol; i<text_line.length(); i++) {
+						end = i+1;
+						if (isspace(text_line.at(i)))
+							break;
+					}
+					
+					
+					// If it's an asset link then find post url
+					if (direct_link != string::npos || asset_link != string::npos) {
+						size_t asset2 = text_line.find("/asset/");
+						
+						if (asset2 != string::npos)
+							url = "https://whatthepost.soup.io" + text_line.substr(asset2, end-asset2);
+					} else
+						url = text_line.substr(protocol, end-protocol);
+					
+					string current_page = "";
+					string post_url     = url;
+					int result          = 1;
+	
+	
+					// If a file with this post number exists then read it instead of downloading
+					if (local_file) {
+						cout << "Reading local page " << predownloaded << " instead of downloading" << endl;
+						result = Read(predownloaded.c_str(), current_page);
+					} else {
+						Sleep(2000);
+						result   = Get(url, "current_page.htm", current_page);
+						post_url = DOWNLOADED_URL;			
+					}
+	
+	
+					// Determine if downloaded file is valid
+					enum PAGE_STATUS {
+						PAGE_NOT_DOWNLOADED,
+						PAGE_OK,
+						PAGE_DELETED,
+						PAGE_HEAVYLOAD,
+						PAGE_PRIVATE,
+						PAGE_NSFW
+					};
+					
+					int page_status = PAGE_NOT_DOWNLOADED;
+	
+					if (result == 0) {
+						if (post_url.find("/post/") == string::npos)
+							page_status = PAGE_DELETED;
+						else						
+							if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
+								page_status = PAGE_HEAVYLOAD;
+							else
+								if (current_page.find("This soup is too private for you!") != string::npos)
+									page_status = PAGE_PRIVATE;
+								else
+									if (current_page.find("The page that you are about to view was reported to contain") != string::npos)
+										page_status = PAGE_NSFW;
+									else
+										page_status = PAGE_OK;
+					}
+					
+					
+					// Parse it
+					switch(page_status) {
+						case PAGE_OK        : {
+							if (line_number != 0)
+								current_page = GetTextBetween(current_page, "<div id=\"post", "<!--soup _post_actions.html -->");
+							
+							records_line = ParseSoupPost(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
+							break;
+						}
+						case PAGE_DELETED   : records_line = "--post deleted"; break;
+						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
+						case PAGE_PRIVATE   : records_line = "--post private - download it manually as " + post_id + ".htm and run the program again"; break;
+						case PAGE_NSFW      : records_line = "--post nsfw - download it manually as " + post_id + ".htm and run the program again"; break;
+						default             : records_line = "--ERROR - " + ERROR_MESSAGE;
+					}
+				} else
+					if (!is_valid_link)
+						records_line = "-- " + text_line;
+						
+				// Save the result
+				file_output.open(save_file_new.c_str(), ios::out | ios::app);
+				if (file_output.is_open()) {
+					file_output << records_line << endl;
+					file_output.close();
+				}
+			}
 			
-			
-			// Save the result
-			file_output.open(save_file_new.c_str(), ios::out | ios::app);
-			file_output << records_line << endl;
-			file_output.close();
 		}
 				
 		file_input.close();
@@ -946,8 +982,16 @@ int main(int argc, char *argv[])
 	
 	if (strstr(filename, ".soup.io"))
 		SoupBackupFromWeb(filename);
-	else
-		SoupBackupFromTxt(filename);
+	else {
+		cout << "Analyzing file" << endl;
+		SoupBackupFromTxt(filename, FIRST_PASS);
+		
+		cout << "Generated hosts.txt. You need to merge it with your C:\\Windows\\System32\\drivers\\etc\\hosts before continuing." << endl << endl;
+		system("pause");
+		
+		for (int i=0; i<3; i++)
+			SoupBackupFromTxt(filename, SECOND_PASS);
+	}
 
 	system("pause");
 	return 0;
