@@ -417,7 +417,8 @@ string HandleQuotes(string str, const string& from, const string& to)
     return str;
 }
 
-//https://stackoverflow.com/questions/6691555/converting-narrow-string-to-wide-string
+
+	//https://stackoverflow.com/questions/6691555/converting-narrow-string-to-wide-string
 wstring string2wide(const string& input)
 {
     if (input.empty())
@@ -428,6 +429,22 @@ wstring string2wide(const string& input)
 	MultiByteToWideChar(CP_UTF8, 0, input.c_str(), (int)input.length(), &output[0], (int)input.length());
 	
 	return output;
+}
+
+
+	// https://stackoverflow.com/questions/3828835/how-can-we-check-if-a-file-exists-or-not-using-win32-program
+int fileExists(string file)
+{
+   wstring filew = string2wide(file);
+   
+   WIN32_FIND_DATAW FindFileData;
+   HANDLE handle = FindFirstFileW(filew.c_str(), &FindFileData);
+   int found     = handle != INVALID_HANDLE_VALUE;
+   
+   if (found)
+       FindClose(handle);
+
+   return found;
 }
 
 
@@ -442,7 +459,7 @@ int DownloadAndMove(string url, string path)
 	if (slash != string::npos) {
 		string file_name = path + "/" + url.substr(slash+1);
 		
-		if (GetFileAttributes(file_name.c_str()) != INVALID_FILE_ATTRIBUTES)
+		if (fileExists(file_name))
 			return 0;
 	}
 	
@@ -486,8 +503,9 @@ string ReplaceAll(string str, const string& from, const string& to)
     return str;
 }
 
+
 	// Download content from the soup post html and return metadata
-string ParseSoupPost(string soup_post, string download_location, string post_url="", string text_line="", int line_number=0) {
+string ParseSoupPost(string soup_post, string download_location, int &failed_downloads, string post_url="", string text_line="", int line_number=0) {
 	string records_line = "";
 	
 	enum POST_TYPES {
@@ -598,6 +616,8 @@ string ParseSoupPost(string soup_post, string download_location, string post_url
 		"','" + text_line + 
 		"'),";
 	} else {
+		failed_downloads++;
+		
 		if (post_type == POST_UNKNOWN) {
 			string new_name = Int2Str(line_number) + "unknown_post.htm";
 			MoveFileEx("current_page.htm", new_name.c_str(), MOVEFILE_REPLACE_EXISTING);
@@ -619,8 +639,13 @@ enum PASS_TYPE {
 	SECOND_PASS
 };
 
+struct DOWNLOAD_INFO {
+	int downloads_failed;
+	int downloads_manual;
+};
+
 	// Mode 1: read text file containing soup links and download content
-void SoupBackupFromTxt(char *filename, int pass_type) {
+DOWNLOAD_INFO SoupBackupFromTxt(char *filename, int pass_type) {
     string save_file_new = "table_in_progress.sql";
     string save_file_old = "table.sql";
 	
@@ -635,6 +660,7 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
     file_records.open(save_file_old.c_str(), ios::in);
     
     vector<string> domains;
+    DOWNLOAD_INFO output = {0,0};
     
 	if (file_input.is_open()) {
         int line_number          = 0;
@@ -667,7 +693,7 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
 			
 			string post_id       = GetTextBetween(text_line, "/post/", "/");
 			string predownloaded = post_id + ".htm";
-			bool local_file      = !post_id.empty() && GetFileAttributes(predownloaded.c_str())!=INVALID_FILE_ATTRIBUTES;
+			bool local_file      = !post_id.empty() && fileExists(predownloaded);
 			
 			
 			// Make a list of domains
@@ -779,14 +805,19 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
 						PAGE_DELETED,
 						PAGE_HEAVYLOAD,
 						PAGE_PRIVATE,
-						PAGE_NSFW
+						PAGE_NSFW,
+						PAGE_WRONGSOUP
 					};
 					
 					int page_status = PAGE_NOT_DOWNLOADED;
 	
 					if (result == 0) {
-						if (post_url.find("/post/") == string::npos)
+						if (post_url.find("/post/") == string::npos) {
 							page_status = PAGE_DELETED;
+							
+							if (current_page.find("Soup.io is a news publishing website") != string::npos)
+								page_status = PAGE_WRONGSOUP;
+						}
 						else						
 							if (current_page.find("Currently, soup.io is under heavy usage") != string::npos)
 								page_status = PAGE_HEAVYLOAD;
@@ -807,18 +838,22 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
 							if (line_number != 0)
 								current_page = GetTextBetween(current_page, "<div id=\"post", "<!--soup _post_actions.html -->");
 							
-							records_line = ParseSoupPost(current_page, path, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
+							records_line = ParseSoupPost(current_page, path, output.downloads_failed, post_url, HandleQuotes(Trim(text_line.substr(end)), "'", "\\'"), line_number);
 							break;
 						}
 						case PAGE_DELETED   : records_line = "--post deleted"; break;
-						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; break;
-						case PAGE_PRIVATE   : records_line = "--post private - download it manually as " + post_id + ".htm and run the program again"; break;
-						case PAGE_NSFW      : records_line = "--post nsfw - download it manually as " + post_id + ".htm and run the program again"; break;
-						default             : records_line = "--ERROR - " + ERROR_MESSAGE;
+						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; output.downloads_manual++; break;
+						case PAGE_PRIVATE   : records_line = "--post private - download " + post_url + " manually as " + post_id + ".htm and run the program again"; output.downloads_manual++; break;
+						case PAGE_NSFW      : records_line = "--post nsfw - download " + post_url + " manually as " + post_id + ".htm and run the program again"; output.downloads_manual++; break;
+						case PAGE_WRONGSOUP : records_line = "--ERROR - you need to edit hosts file to redirect domain to the old server"; output.downloads_failed++; break;
+						default             : records_line = "--ERROR - " + ERROR_MESSAGE; output.downloads_failed++;
 					}
 				} else
 					if (!is_valid_link)
 						records_line = "-- " + text_line;
+						
+				if (records_line.substr(0,26) == "--post private - download " || records_line.substr(0,23) == "--post nsfw - download ")
+					output.downloads_manual++;
 						
 				// Save the result
 				file_output.open(save_file_new.c_str(), ios::out | ios::app);
@@ -835,6 +870,7 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
 	
 	file_records.close();
 	MoveFileEx(save_file_new.c_str(), save_file_old.c_str(), MOVEFILE_REPLACE_EXISTING);
+	return output;
 }
 
 
@@ -842,14 +878,15 @@ void SoupBackupFromTxt(char *filename, int pass_type) {
 
 
 	// Download soup pages, detect posts and download their content
-void SoupBackupFromWeb(char *soupname) {
+DOWNLOAD_INFO SoupBackupFromWeb(char *soupname) {
 	CreateDirectory(soupname, NULL);
 	
-	string url          = "https://" + (string)soupname;
-	string current_page = "";
-	int page_num        = 0;
-	string next_page    = "";
-	int result          = 0;
+	string url           = "https://" + (string)soupname;
+	string current_page  = "";
+	int page_num         = 0;
+	string next_page     = "";
+	int result           = 0;
+	DOWNLOAD_INFO output = {0,0};
 	vector<string> posts;
 	
 	ifstream file_output;
@@ -878,7 +915,7 @@ void SoupBackupFromWeb(char *soupname) {
 		int result       = 0;
 		
 		// Download page or read if it was already downloaded
-		if (GetFileAttributes(page_name.c_str()) == INVALID_FILE_ATTRIBUTES) {
+		if (!fileExists(page_name)) {
 			do {
 				result       = 0;
 				current_page = "";
@@ -950,7 +987,7 @@ void SoupBackupFromWeb(char *soupname) {
 					file_output.open("table.sql", ios::out | ios::app);
 					
 					if (file_output.is_open()) {
-						file_output << ParseSoupPost(post_content, soupname) << endl;
+						file_output << ParseSoupPost(post_content, soupname, output.downloads_failed) << endl;
 						file_output.close();				
 					}
 				}
@@ -966,7 +1003,7 @@ void SoupBackupFromWeb(char *soupname) {
 	} while (!next_page.empty());
 	
 	end:
-	return;
+	return output;
 }
 
 
@@ -980,8 +1017,11 @@ int main(int argc, char *argv[])
 	if (argc > 1)
 		filename = argv[1];
 	
+	
+	DOWNLOAD_INFO result;
+	
 	if (strstr(filename, ".soup.io"))
-		SoupBackupFromWeb(filename);
+		result = SoupBackupFromWeb(filename);
 	else {
 		cout << "Analyzing file" << endl;
 		SoupBackupFromTxt(filename, FIRST_PASS);
@@ -989,10 +1029,15 @@ int main(int argc, char *argv[])
 		cout << "Generated hosts.txt. You need to merge it with your C:\\Windows\\System32\\drivers\\etc\\hosts before continuing." << endl << endl;
 		system("pause");
 		
-		for (int i=0; i<3; i++)
-			SoupBackupFromTxt(filename, SECOND_PASS);
+		int max = 3;
+		for (int i=0; i<max; i++) {
+			cout << endl << endl << "Pass: " << i+1 << " / " << max << endl;
+			result = SoupBackupFromTxt(filename, SECOND_PASS);
+		}
 	}
 
+
+	cout << endl << result.downloads_failed << " failed downloads" << endl << result.downloads_manual << " have to be downloaded manually" << endl << endl;
 	system("pause");
 	return 0;
 }
