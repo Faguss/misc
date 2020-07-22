@@ -535,7 +535,7 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 		
 		content_saved = DownloadAndMove(image_url, download_location)==0; 
 	} else 
-		if (!container_video.empty()) {
+		if (!container_video.empty() && soup_post.find("<div class=\"embed\">")==string::npos) {
 			post_type     = POST_VIDEO;
 			image_url     = GetTextBetween(container_video, "src=\"", "\"");
 			content_saved = DownloadAndMove(image_url, download_location)==0; 
@@ -544,6 +544,7 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 			tags_to_find.push_back("<span class=\"body\"");
 			tags_to_find.push_back("<div class=\"body\"");
 			tags_to_find.push_back("<div class=\"description\"");
+			tags_to_find.push_back("<div class=\"embed\"");
 			
 			for (int i=0; i<tags_to_find.size(); i++) {
 				size_t body_pos = soup_post.find(tags_to_find[i]);
@@ -557,7 +558,7 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 			}
 			
 			if (post_type == POST_UNKNOWN) {
-				string content = Trim(GetTextBetween(soup_post, "<div class=\"content \">", "<div class=\"source reposted_by \">"));
+				string content = Trim(GetTextBetween(soup_post, "<div class=\"content \">", "<div class=\"source\""));
 
 				if (content.empty())
 					post_type = POST_EMPTY;
