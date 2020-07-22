@@ -854,9 +854,9 @@ DOWNLOAD_INFO SoupBackupFromTxt(char *filename, int pass_type) {
 							break;
 						}
 						case PAGE_DELETED   : records_line = "--post deleted"; break;
-						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; output.downloads_manual++; break;
-						case PAGE_PRIVATE   : records_line = "--post private - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; output.downloads_manual++; break;
-						case PAGE_NSFW      : records_line = "--post nsfw - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; output.downloads_manual++; break;
+						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; output.downloads_failed++; break;
+						case PAGE_PRIVATE   : records_line = "--post private - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; break;
+						case PAGE_NSFW      : records_line = "--post nsfw - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; break;
 						case PAGE_WRONGSOUP : records_line = "--ERROR - you need to edit hosts file to redirect domain to the old server"; output.downloads_failed++; break;
 						default             : records_line = "--ERROR - " + ERROR_MESSAGE; output.downloads_failed++;
 					}
