@@ -5,6 +5,7 @@ Program I used to backup soup.io posts
 Works in two modes:
 	1. by default saves posts from links stored in a text file (soup.txt)
 		don't change order of lines in soup.txt and table.sql
+		to access private/nsfw posts you can export your soup session cookies to a text file cookies.txt using https://chrome.google.com/webstore/detail/cookiestxt/njabckikapfpffapmjgojcnbfjonfjfg/related
 	
 	2. if you run it with your soup name:  soup_backup.exe mysoup.soup.io
 		then it will download soup content (infinite scrolling must be disabled)
@@ -155,6 +156,11 @@ int ParseWgetLog(string &error)
 		string filesize    = "";
 		bool foundFileName = false;
 		string Progress[]  = {"", "", "", ""};
+		
+		vector<string> error_messages;
+		error_messages.push_back("failed");
+		error_messages.push_back("ERROR");
+		error_messages.push_back("Giving up");
 
 		while(getline(DownloadLog, text)) {
 			text = Trim(text);
@@ -208,37 +214,26 @@ int ParseWgetLog(string &error)
 			}
 
 			// Get error message
-			size_t search1 = text.find("failed");
-			size_t search2 = text.find("ERROR");
-
-			if (search1 != string::npos)
-				error = text;
-
-			if (search2 != string::npos)
-				error = text.substr(search2);
+			for (int i=0; i<error_messages.size(); i++) {
+				size_t pos = text.find(error_messages[i]);
+				
+				if (pos != string::npos) {
+					switch(i) {
+						case 1 : error=text.substr(pos); break;
+						default : error=text;
+					}
+				}
+			}
 				
 			// Get url
 			size_t separator = text.find("--  ");
 			size_t protocol  = text.find("://");
-			if (separator != string::npos && protocol != string::npos) {
+			if (separator != string::npos && protocol != string::npos)
 				DOWNLOADED_URL = text.substr(separator+4);
-			}
 		}
 
 		DownloadLog.close();
-
-		/*string tosave = "Connecting...";
-
-		if (Progress[0] != "")
-			tosave = "Downloading...\\n" + 
-					 DOWNLOADED_FILENAME + "\\n\\n" +
-					 Progress[0] + " / " + filesize + " - " + Progress[1] + "\\n" + 
-					 Progress[2] + "\\n" + 
-					 Progress[3] + " left";
-
-		WriteProgressFile(INSTALL_PROGRESS, tosave);*/
-	}
-	else
+	} else
 		return 1;
 	
 	return 0;
@@ -251,7 +246,7 @@ int Download(string url, string filename, bool overwrite=true)
 	if (!filename.empty() && overwrite)
 		DeleteFile(filename.c_str());
 	
-	string arguments = " --tries=1 --output-file=downloadLog.txt --no-check-certificate ";
+	string arguments = " --tries=1 --output-file=downloadLog.txt --no-check-certificate --load-cookies cookies.txt ";
 	
 	if (!filename.empty())
 		arguments += "--output-document=" + filename + " ";
@@ -292,8 +287,8 @@ int Download(string url, string filename, bool overwrite=true)
 		}
 		
 	} else {
-		int errorCode = GetLastError();
-		ERROR_MESSAGE = "Failed to run wget.exe - " + FormatError(errorCode);
+		exit_code     = GetLastError();
+		ERROR_MESSAGE = "Failed to run wget.exe - " + FormatError(exit_code);
 		cout << ERROR_MESSAGE;
 	}
 	
@@ -757,6 +752,10 @@ DOWNLOAD_INFO SoupBackupFromTxt(char *filename, int pass_type) {
 				}
 	
 	
+				// If cookie file exists then try again to download
+				if ((records_line.substr(0,26) == "--post private - download " || records_line.substr(0,23) == "--post nsfw - download ") && fileExists("cookies.txt"))
+					records_line = "";
+							
 				// If valid link then download post
 				if (((records_line.empty() || records_line.substr(0,7)=="--ERROR")  &&  is_valid_link) || local_file) {
 					cout << "Line " << line_number << endl;
@@ -843,8 +842,8 @@ DOWNLOAD_INFO SoupBackupFromTxt(char *filename, int pass_type) {
 						}
 						case PAGE_DELETED   : records_line = "--post deleted"; break;
 						case PAGE_HEAVYLOAD : records_line = "--ERROR - soup is under heavy load"; output.downloads_manual++; break;
-						case PAGE_PRIVATE   : records_line = "--post private - download " + post_url + " manually as " + post_id + ".htm and run the program again"; output.downloads_manual++; break;
-						case PAGE_NSFW      : records_line = "--post nsfw - download " + post_url + " manually as " + post_id + ".htm and run the program again"; output.downloads_manual++; break;
+						case PAGE_PRIVATE   : records_line = "--post private - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; output.downloads_manual++; break;
+						case PAGE_NSFW      : records_line = "--post nsfw - download " + post_url + " manually as " + post_id + ".htm OR export your session cookies to cookies.txt and then run the program again"; output.downloads_manual++; break;
 						case PAGE_WRONGSOUP : records_line = "--ERROR - you need to edit hosts file to redirect domain to the old server"; output.downloads_failed++; break;
 						default             : records_line = "--ERROR - " + ERROR_MESSAGE; output.downloads_failed++;
 					}
@@ -889,6 +888,12 @@ DOWNLOAD_INFO SoupBackupFromWeb(char *soupname) {
 	DOWNLOAD_INFO output = {0,0};
 	vector<string> posts;
 	
+	vector<string> invalid_pages;
+	invalid_pages.push_back("Currently, soup.io is under heavy usage");
+	invalid_pages.push_back("This soup is too private for you!");
+	invalid_pages.push_back("The page that you are about to view was reported to contain");
+	invalid_pages.push_back("Soup.io is a news publishing website");
+	
 	ifstream file_output;
 	file_output.open("table.sql", ios::in);
 	
@@ -907,7 +912,7 @@ DOWNLOAD_INFO SoupBackupFromWeb(char *soupname) {
 	}
 
 
-	// While there's link to another page
+	// While there's still link to another page
 	do {
 		cout << "Page: " << page_num << endl;
 		
@@ -939,21 +944,15 @@ DOWNLOAD_INFO SoupBackupFromWeb(char *soupname) {
 		}
 		
 		
-		// Check if page is valid
-		string error_messages[] = {
-			"Currently, soup.io is under heavy usage",
-			"This soup is too private for you!",
-			"The page that you are about to view was reported to contain"
-		};
-			
-		for (int i=0; i<3; i++)
-			if (current_page.find(error_messages[i]) != string::npos) {
-				cout << url << endl << error_messages[i] << endl;
+		// Check if page is valid			
+		for (int i=0; i<invalid_pages.size(); i++)
+			if (current_page.find(invalid_pages[i]) != string::npos) {
+				cout << url << endl << invalid_pages[i] << endl;
 				goto end;
 			}
 		
 		
-		// After this tag posts begin					
+		// After this tag posts begin		
 		size_t offset = current_page.find("<div id=\"posts\">");
 		
 		if (offset != string::npos)
