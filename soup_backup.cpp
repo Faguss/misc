@@ -507,7 +507,8 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 		POST_UNKNOWN,
 		POST_TEXT,
 		POST_IMAGE,
-		POST_VIDEO
+		POST_VIDEO,
+		POST_EMPTY
 	};
 
 	int post_type          = POST_UNKNOWN;
@@ -553,6 +554,13 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 					content_saved = true;
 					break;
 				}
+			}
+			
+			if (post_type == POST_UNKNOWN) {
+				string content = Trim(GetTextBetween(soup_post, "<div class=\"content \">", "<div class=\"source reposted_by \">"));
+
+				if (content.empty())
+					post_type = POST_EMPTY;
 			}
 		}
 	
@@ -621,8 +629,13 @@ string ParseSoupPost(string soup_post, string download_location, int &failed_dow
 			cout << GetTextBetween(soup_post, "<div class=\"icon type\"><a href=\"", "\" title") << endl;
 		}
 		
-		cout << "Content not saved: " << ERROR_MESSAGE << endl;
-		records_line = "--ERROR - " + ERROR_MESSAGE;
+		if (post_type == POST_EMPTY) {
+			cout << "Post has no content" << endl;
+			records_line = "--post empty";
+		} else {
+			cout << "Content not saved: " << ERROR_MESSAGE << endl;
+			records_line = "--ERROR - " + ERROR_MESSAGE;
+		}
 	}
 	
 	return records_line;
