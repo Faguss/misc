@@ -6,6 +6,38 @@
 #include <vector>
 using namespace std;
 
+//https://stackoverflow.com/questions/6691555/converting-narrow-string-to-wide-string
+wstring string2wide(const string& input)
+{
+    if (input.empty())
+		return wstring();
+
+	size_t output_length = MultiByteToWideChar(CP_UTF8, 0, input.c_str(), (int)input.length(), 0, 0);
+	wstring output(output_length, L'\0');
+	MultiByteToWideChar(CP_UTF8, 0, input.c_str(), (int)input.length(), &output[0], (int)input.length());
+	
+	return output;
+}
+
+//https://mariusbancila.ro/blog/2008/10/20/writing-utf-8-files-in-c/
+string wide2string(const wchar_t* input, int input_length)
+{
+	int output_length = WideCharToMultiByte(CP_UTF8, 0, input, input_length, NULL, 0, NULL, NULL);
+      
+	if (output_length == 0) 
+		return "";
+ 
+	string output(output_length, ' ');
+	WideCharToMultiByte(CP_UTF8, 0, input, input_length, const_cast< char* >(output.c_str()), output_length, NULL, NULL); 
+ 
+	return output;
+}
+ 
+string wide2string(const wstring& input)
+{
+   return wide2string(input.c_str(), (int)input.size());
+}
+
 string Int2Str(int num)
 {
     ostringstream text;
@@ -37,43 +69,46 @@ string FormatError(int error)
 	return ret;
 }
 
-int browse_directory(string input_path, string input_pattern, vector<string> &container) {
-	string pattern = input_path + (!input_path.empty() ? "\\" : "") + input_pattern;
-	
-	HANDLE hFile;
-	WIN32_FIND_DATA FileInformation;
-	hFile = FindFirstFile(pattern.c_str(), &FileInformation);
+
+
+void browse_directory(wstring input_path, wstring input_pattern, ofstream &output) 
+{
+	WIN32_FIND_DATAW FileInformation;
+	wstring pattern = input_path + (!input_path.empty() ? L"\\" : L"") + input_pattern;
+	HANDLE hFile    = FindFirstFileW(pattern.c_str(), &FileInformation);
 	
 	if (hFile == INVALID_HANDLE_VALUE) {
 		int errorCode = GetLastError();
-		container.push_back("Failed to list files in " + input_path + " - " + FormatError(errorCode));
-		return 1;
+		output << "Failed to list files in " << wide2string(input_path) << " - " << FormatError(errorCode) << endl;
+		return;
 	}
 	
 	int number_of_files = 0;
 	
 	do {
-		string current_file = (string)FileInformation.cFileName;
+		wstring current_file = (wstring)FileInformation.cFileName;
 		
-		if (current_file != "."  &&  current_file != "..") {
+		if (current_file != L"."  &&  current_file != L"..") {
 			number_of_files++;
-			string path_to_current_file = input_path + (!input_path.empty() ? "\\" : "") + current_file;
+			wstring path_to_current_file = input_path + (!input_path.empty() ? L"\\" : L"") + current_file;
 
 			if (FileInformation.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-				browse_directory(path_to_current_file, input_pattern, container);
+				browse_directory(path_to_current_file, input_pattern, output);
 			else
-				container.push_back(path_to_current_file);
+				output << wide2string(path_to_current_file) << endl;
 		}
 	}
-	while(FindNextFile(hFile, &FileInformation) == TRUE);
+	while(FindNextFileW(hFile, &FileInformation));
 	
 	// If empty directory then include its name
 	if (number_of_files==0 && !input_path.empty())
-		container.push_back(input_path+"\\");
+		output << wide2string(input_path) << "\\" << endl;
 	
 	FindClose(hFile);
-	return 0;
+	return;
 }
+
+
 
 int main(int argc, char *argv[])
 {
@@ -99,19 +134,10 @@ int main(int argc, char *argv[])
 	if (!input_path.empty() && (input_path.substr(input_path.length()-1) == "\\"))
 		input_path = input_path.substr(0, input_path.length()-1);
 	
-	vector<string> file_list;
-	browse_directory(input_path, input_pattern, file_list);
 	
 	ofstream logfile;
 	logfile.open("file_list.txt", ios::out | ios::trunc);
-	
-	for (int i=0; i<file_list.size(); i++) {
-		logfile << file_list[i];
-		
-		if (i < file_list.size() - 1)
-			logfile << endl;
-	}
-
+	browse_directory(string2wide(input_path), string2wide(input_pattern), logfile);
 	logfile.close();
 	return 0;
 }
