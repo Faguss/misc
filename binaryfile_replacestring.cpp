@@ -193,10 +193,10 @@ int main(int argc, char *argv[])
 	}
 
 	browse_directory("", tofind, replacewith, wanted_extension);
-	system("pause");
 	
 	if (global.text_buffer_allocated)
 		delete[] global.text_buffer;
 
 	return 0;
 }
+

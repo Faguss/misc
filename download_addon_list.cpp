@@ -97,7 +97,7 @@ int Download(string url, string filename, bool overwrite=true)
 		DeleteFile(filename.c_str());
 	
 	cout << url << endl << endl;
-	string arguments   = " --tries=3 --no-check-certificate --no-clobber --output-document=" + filename + " " + url;
+	string arguments   = " --tries=3 --no-check-certificate --no-clobber --remote-encoding=utf-8 --output-document=" + filename + " " + url;
 	
 	// Execute program
 	PROCESS_INFORMATION pi;
@@ -126,6 +126,7 @@ int Download(string url, string filename, bool overwrite=true)
 		return errorCode;
 	}
 	
+	Sleep(1000);
 	return 0;
 }
 
@@ -404,9 +405,12 @@ struct HtmlFile {
 };
 
 int HtmlFile_Get(HtmlFile &record, string url, bool overwrite=true)
-{
+{			
 	record.search_offset = 0;
-	Download(url, record.file_name, overwrite);
+	
+	if (overwrite || GetFileAttributes(record.file_name.c_str()) == INVALID_FILE_ATTRIBUTES)
+		Download(url, record.file_name, overwrite);
+
 	return Read(record.file_name, record.buffer);
 }
 
@@ -768,9 +772,202 @@ int ModDB()
 	output.close();
 }
 
+void BIForum() 
+{
+	string base_folder = "BIForum";
+	string base_url    = "https://forums.bohemia.net";
+	
+	vector<string> games_to_explore;
+		games_to_explore.push_back("22-addons-amp-mods-complete");
+		games_to_explore.push_back("52-addons-amp-mods-discussion");
+		
+	CreateDirectory(base_folder.c_str(), NULL);
+	
+	for(int i=0; i<games_to_explore.size(); i++) {
+		string game_folder = base_folder + "\\" + games_to_explore[i];
+		
+		if (GetFileAttributes(game_folder.c_str()) != INVALID_FILE_ATTRIBUTES)
+			continue;
+		
+		CreateDirectory(game_folder.c_str(), NULL);
+		
+		bool next_page = true;
+		int page_num   = 0;
+		int item_num   = 0;
+		
+		while(next_page) {
+			HtmlFile current_page;
+			current_page.file_name = game_folder + "\\page" + Int2Str(page_num) + ".htm";
+			string page_url        = base_url + "/forums/forum/" + games_to_explore[i];
+			
+			if (page_num !=0)
+				page_url += "/?page=" + Int2Str(page_num+1);
+			
+			HtmlFile_Get(current_page, page_url, SKIP_IF_EXISTS);
+			
+			size_t tmp_offset   = 0;
+			current_page.buffer = GetTextBetween(current_page.buffer, "<div class='ipsBox'", "<div class='ipsResponsive_showPhone", tmp_offset);
+			
+			HtmlFile_Search(current_page, "<div class='ipsDataItem_main'>", "<ul class='ipsDataItem_stats'>");
+			
+			for (int j=0; j<current_page.found_strings.size(); j++) {
+				HtmlFile item_page;
+				item_page.file_name = game_folder + "\\item" + Int2Str(item_num) + ".htm";
+				
+				if (current_page.found_strings[j].find("title='Pinned'") != string::npos)
+					continue;
+				
+				size_t tmp_offset2 = 0;
+				string item_url = GetTextBetween(current_page.found_strings[j], "<a href='", "'", tmp_offset2);
+				
+				HtmlFile_Get(item_page, item_url, SKIP_IF_EXISTS);
+				
+				/*FILE *file = fopen(item_page.file_name.c_str(),"rb");
+				fseek(file, 0, SEEK_END);
+				int file_size = ftell(file);
+				fclose(file);
+				
+				if (file_size == 0) {
+					FILE *fd = fopen("output.txt","a");
+					fprintf(fd,"page_num:%d\nitem_num:%d\n%s\n%s\n\n", page_num, item_num, page_url.c_str(), item_url.c_str());
+					fclose(fd);
+					HtmlFile_Get(item_page, item_url, REDOWNLOAD);
+				}*/
+				
+				item_num++;
+			}
+			
+			tmp_offset = 0;
+			if (GetTextBetween(current_page.buffer, "' rel=\"next\" data-page='", "<li class='ipsPagination_next'><a href='", tmp_offset, REVERSE).empty())
+				next_page = false;
+			else					
+				page_num++;
+		}
+	}
+
+	
+
+	vector<string> item_properties;
+	vector<string> item_properties_html;
+		//title
+		item_properties_html.push_back("<span class='ipsType_break ipsContained'>");
+		item_properties_html.push_back("</span>");
+		
+		//filename
+		item_properties_html.push_back("");
+		item_properties_html.push_back("");
+		
+		//filesize
+		item_properties_html.push_back("");
+		item_properties_html.push_back("");
+		
+		//datetime
+		item_properties_html.push_back("<time datetime='");
+		item_properties_html.push_back("' title=");
+		
+		//downloads
+		item_properties_html.push_back("");
+		item_properties_html.push_back("");
+		
+		//description
+		item_properties_html.push_back("<div data-role='commentContent' class='ipsType_normal ipsType_richText ipsContained' data-controller='core.front.core.lightboxedImages'>");
+		item_properties_html.push_back("<div class='ipsItemControls'>");
+			
+	string item_buffer = "";
+	string iteminfo_buffer = "";
+	int record_id = 0;
+	
+	fstream output;
+	output.open(base_folder+".sql", ios::out | ios::trunc);
+	output << "CREATE TABLE IF NOT EXISTS `" << base_folder << "` ("
+  "`ID` int(11) NOT NULL,"
+  "`Title` text NOT NULL,"
+  "`Permalink` text NOT NULL,"
+  "`ForumID` int(11) NOT NULL,"
+  "`LocalItem` int(11) NOT NULL,"
+  "`Date` datetime NOT NULL,"
+  "`Author` text NOT NULL,"
+  "`Description` text NOT NULL"
+") ENGINE=MyISAM DEFAULT CHARSET=utf8;" << endl << 
+"ALTER TABLE `" << base_folder << "` ADD PRIMARY KEY (`ID`);" << endl << 
+"INSERT INTO `" << base_folder << "` (`ID`, `Title`, `Permalink`, `ForumID`, `LocalItem`, `Date`, `Author`, `Description`) VALUES" << endl;
+
+	for (int i=0; i<games_to_explore.size(); i++) {
+		int item_id = 0;
+		
+		do {
+			string item_file_name = base_folder + "\\" + games_to_explore[i] + "\\item" + Int2Str(item_id) + ".htm";
+			
+			if (GetFileAttributes(item_file_name.c_str()) == INVALID_FILE_ATTRIBUTES) {
+				break;
+			}
+			
+			Read(item_file_name, item_buffer);
+			item_properties.clear();
+			
+			if (!item_buffer.empty()) {
+				for (int j=0; j<item_properties_html.size()-1; j+=2) {
+					if (item_properties_html[j].empty()) {
+						item_properties.push_back("");
+						continue;
+					}
+					
+					size_t tmp = 0;
+					string item_property = GetTextBetween(item_buffer, item_properties_html[j], item_properties_html[j+1], tmp);							
+					item_properties.push_back(Trim(HandleQuotes(item_property, "'", "\\'")));
+				}
+				
+				size_t tmp_offset = 0;
+				string permalink  = GetTextBetween(item_buffer, "<meta property=\"og:url\" content=\"", "\"", tmp_offset);
+				permalink = permalink.substr(40);
+				permalink = permalink.substr(0, permalink.length()-1);
+				
+				tmp_offset = 0;
+				string author_line = GetTextBetween(item_buffer, "<a href='https://forums.bohemia.net/profile/", "</span>", tmp_offset);
+				tmp_offset = 0;
+				string author = GetTextBetween(author_line, "class=\"ipsType_break\">", "</a>", tmp_offset);
+				
+				char *title = (char *)item_properties[TITLE].c_str();
+				char *description = (char *)item_properties[DESCRIPTION].c_str();
+				
+				if (record_id != 0)
+					output << "," << endl;
+				
+				output 
+				<< "(" 
+				<< record_id 
+				<< ",'" 
+				<< item_properties[TITLE].substr(6)
+				<< "','" 
+				<< permalink
+				<< "'," 
+				<< i
+				<< "," 
+				<< item_id
+				<< ","
+				<< "CONVERT('" << item_properties[DATETIME].substr(0, item_properties[DATETIME].length()-1) << "',datetime)"
+				<< ",'" 
+				<< author
+				<< "','" 
+				<< item_properties[DESCRIPTION].substr(0, item_properties[DESCRIPTION].length()-11)
+				<< "')";
+				
+				record_id++;
+			}
+			
+			item_id++;
+		} while(true);
+	}
+	
+	output << ";";
+	
+	output.close();
+}
+
 int main(int argc, char *argv[]) {
-	DSServers();
-	LoneBullet();
-	ModDB();
+	//DSServers();
+	//LoneBullet();
+	//ModDB();
+	BIForum();
 	return 0;
 }
