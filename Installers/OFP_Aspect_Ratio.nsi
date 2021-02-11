@@ -686,7 +686,32 @@ Section
 	SetOverwrite ifnewer
 	SetOutPath "$INSTDIR\"
 	File /r "data\*"
-		
+	
+	IfFileExists "$INSTDIR\bin\config_fwatch_hud.cfg" +3 0
+	SetOutPath "$INSTDIR\bin\"
+	File "config_fwatch_hud.cfg"
+	
+	${If} "$cfgName" == "flashpoint.cfg"
+		StrCpy $R0 "$INSTDIR\Res\dta\"
+	${Else}
+		StrCpy $R0 "$INSTDIR\dta\"
+	${EndIf}
+
+	IfFileExists $R0\_anims.backup +2 0
+		Rename $R0\anims.pbo $R0\_anims.backup
+	
+	${If} "$cfgName" == "flashpoint.cfg"
+		SetOutPath "$INSTDIR\Res\dta\"
+		File "anims\1.96\anims.pbo"
+	${Else}
+		SetOutPath "$INSTDIR\dta\"
+		File "anims\1.99\anims.pbo"
+	${EndIf}
+	
+	
+
+	
+	
 ; Check game executable ===========================================
 
 	; Check if this is Steam version
