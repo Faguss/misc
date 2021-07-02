@@ -1,10 +1,12 @@
-// Lockmouse2 v1.15 by Faguss (ofp-faguss.com) 09.01.15
+// Lockmouse2 v1.16 by Faguss (ofp-faguss.com) 02.07.21
 
     // Headers
 #include <windows.h>       // winapi
 #include <iostream>        // cout
 #include <sstream>         // var conversion
 #include <tlhelp32.h>      // process/module traversing
+#include <vector>
+#include <algorithm>       // tolower
 
 	// SystemParametersInfo parameters
 #define SPI_GETMOUSESPEED 0x0070
@@ -20,103 +22,97 @@ using namespace std;
 // **************** FUNCTIONS **************************************************
 
 	// Check if current window is not Windows Explorer
-bool IsNotExplorer (DWORD pid)
+bool IsExplorer(DWORD pid)
 {
 	HANDLE hSnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid);
-	MODULEENTRY32 xModule;
-	bool result = false;
  
-	if (hSnap != INVALID_HANDLE_VALUE) 
-	{
+	if (hSnap != INVALID_HANDLE_VALUE) {
+		MODULEENTRY32 xModule;
 		xModule.dwSize = sizeof(MODULEENTRY32);
+		bool result    = false;
+		
 		if (Module32First(hSnap, &xModule) != 0)
-			if (lstrcmpi(xModule.szModule, (LPCTSTR)"explorer.exe") != 0)
+			if (lstrcmpi(xModule.szModule, (LPCTSTR)"explorer.exe") == 0)
 				result = true;
 		
 		CloseHandle(hSnap);
 		return result;
-	}
-	else
+	} else
 		return false;
 
-};
+}
 
 
 
 	// Check if process with given ID number exists
-bool IsProcessRunning (DWORD pid)
+bool IsProcessRunning(DWORD pid)
 {
 	PROCESSENTRY32 processInfo;
-	processInfo.dwSize = sizeof(processInfo);
-	bool result = false;
-
+	processInfo.dwSize       = sizeof(processInfo);
+	bool result              = false;
 	HANDLE processesSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if ( processesSnapshot != INVALID_HANDLE_VALUE )
-	{
+	
+	if (processesSnapshot != INVALID_HANDLE_VALUE) {
 		Process32First(processesSnapshot, &processInfo);
 		
-		do
-            if ((DWORD)processInfo.th32ProcessID == pid) 
-				result = true;
-		while (Process32Next(processesSnapshot, &processInfo)  &&  !result);
+		do {
+			result = (DWORD)processInfo.th32ProcessID == pid;
+		} while (Process32Next(processesSnapshot, &processInfo)  &&  !result);
 
 		CloseHandle(processesSnapshot);
-	};
+	}
 	
 	return result;
-};
+}
 
 
 
 	// Find process by exename; returns PID number
-int findProcess (char* name)
+DWORD findProcess(const char* name)
 {
 	PROCESSENTRY32 processInfo;
-	processInfo.dwSize = sizeof(processInfo);
-	int pid = 0,
-		currPID = GetCurrentProcessId();
-
+	processInfo.dwSize       = sizeof(processInfo);
+	DWORD pid_return         = 0;
+	DWORD pid_current        = GetCurrentProcessId();
 	HANDLE processesSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if (processesSnapshot != INVALID_HANDLE_VALUE)
-	{
+	
+	if (processesSnapshot != INVALID_HANDLE_VALUE) {
 		Process32First(processesSnapshot, &processInfo);
 		
-		do
-		{
-			int tempPID = processInfo.th32ProcessID;
-			if (strcmpi(processInfo.szExeFile,name)==0  &&  tempPID!=currPID)
-			{
-				pid = tempPID;
+		do {
+			DWORD pid = processInfo.th32ProcessID;
+			
+			if (strcmpi(processInfo.szExeFile,name)==0  &&  pid!=pid_current) {
+				pid_return = pid;
 				break;
-			};
-		}
-		while (Process32Next(processesSnapshot, &processInfo));
+			}
+		} while (Process32Next(processesSnapshot, &processInfo));
 
 		CloseHandle(processesSnapshot);
-	};
+	}
 	
-	return pid;
+	return pid_return;
 };
 
 
 
 	// Change OFP sensitivity in process memory
-bool slowDownMouse (DWORD pid, string WINDOW_NAME, float sensitivity)
+bool slowDownMouse(DWORD pid, string WINDOW_NAME, float sensitivity)
 {
-	SIZE_T stBytes=0;
-	HANDLE phandle;
-	int offset=0;
+	int offset = 0;
 	
-	if (WINDOW_NAME=="operation flashpoint") 
-		offset=0x0079E938;
+	if (WINDOW_NAME == "operation flashpoint") 
+		offset = 0x0079E938;
 	else
-		if (WINDOW_NAME=="cold war assault") 
-			offset=0x0078DA30;
+		if (WINDOW_NAME == "cold war assault") 
+			offset = 0x0078DA30;
 		else
 			return false;
 		
-	phandle = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
-	if (phandle == 0) 
+	SIZE_T stBytes = 0;
+	HANDLE phandle = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
+	
+	if (!phandle) 
 		return false;
 	
 	WriteProcessMemory(phandle, (LPVOID)offset,     &sensitivity, 4, &stBytes);
@@ -131,29 +127,28 @@ bool slowDownMouse (DWORD pid, string WINDOW_NAME, float sensitivity)
 
 // Return number of threads in a process
 // http://msdn.microsoft.com/en-us/library/ms686852%28VS.85%29.aspx
-int countThreads (unsigned int pid)
+int countThreads(DWORD pid)
 {
-	int threads = 0;
-	THREADENTRY32 te32; 
+	int threads        = 0;
 	HANDLE hThreadSnap = INVALID_HANDLE_VALUE; 
- 
-	hThreadSnap = CreateToolhelp32Snapshot( TH32CS_SNAPTHREAD, 0 ); 
-	if (hThreadSnap != INVALID_HANDLE_VALUE) 
-	{
+	hThreadSnap        = CreateToolhelp32Snapshot( TH32CS_SNAPTHREAD, 0 ); 
+	
+	if (hThreadSnap != INVALID_HANDLE_VALUE) {
+		THREADENTRY32 te32; 
 		te32.dwSize = sizeof(THREADENTRY32);
-		if (Thread32First( hThreadSnap, &te32 )) 
-		{
-			do 
+		
+		if (Thread32First(hThreadSnap, &te32)) {
+			do {
 				if (te32.th32OwnerProcessID == pid) 
 					threads++;
-			while (Thread32Next(hThreadSnap, &te32));
-		};
+			} while (Thread32Next(hThreadSnap, &te32));
+		}
 
-		CloseHandle( hThreadSnap );
-	};
+		CloseHandle(hThreadSnap);
+	}
 	
     return threads; 
-};
+}
 // *****************************************************************************
 
 
@@ -182,7 +177,7 @@ int main(int argc, char *argv[])
 {
 	SetConsoleTitle( "Lockmouse2" );
 	
-    cout << "\n\tLockmouse2 v1.15\n\n";
+    cout << "\n\tLockmouse2 v1.16\n\n";
     
 // arguments:
 // -window=
@@ -198,144 +193,154 @@ int main(int argc, char *argv[])
 
 
 	// Arguments variables
-	string WANTED_WINDOW = "operation flashpoint";
-	float OFPsensitivity = 1;
+	float ofp_sensitivity        = 1;
+	bool ofp_sensitivity_change  = false;
+	bool reposition_center       = false;
+	bool reposition_cursor       = true;
+	bool reposition_x            = false;
+	bool reposition_y            = false;
+	bool quit                    = false;		 
+	int acceleration_original[3] = {-1,-1,-1};
+	int acceleration[3]          = {6,10,-1};
+	int sensitivity_original     = -1;
+	int sensitivity              = 10;
+	int coordinate_x             = 0;
+	int coordinate_y             = 0;
+		
+	vector<string> window_names;
+	window_names.push_back("operation flashpoint");
+	window_names.push_back("cold war assault");
+	window_names.push_back("arma resistance");
 	
-	bool changeOFPsensitivity = false,
-		 repositionCENTER = false,
-		 repositionCURSOR = true,
-		 repositionX = false,
-		 repositionY = false,
-		 quit = false;
-		 
-	int ORIGINALacceleration[3] = {-1,-1,-1},
-		acceleration[3] = {6,10,-1},
-		ORIGINALsensitivity = -1,
-		sensitivity = 10,
-		Xcoord = 0, 
-		Ycoord = 0;
 		
 
     
 	// Parse arguments
-	for (int i=1; i<argc; i++)
-	{  
-		string currARG = string(argv[i]);
+	for (int i=1; i<argc; i++) {  
+		string argument = string(argv[i]);
+		transform(argument.begin(), argument.end(), argument.begin(), ::tolower);
 
 		// Custom window name
-		if(currARG.substr(0,8)=="-window="  &&  currARG.length()>8)
-		{
-			WANTED_WINDOW = currARG.substr(8);
-			transform(WANTED_WINDOW.begin(), WANTED_WINDOW.end(), WANTED_WINDOW.begin(), ::tolower);
-		};
+		if (argument.substr(0,8)=="-window="  &&  argument.length()>8) {
+			string wanted_window = argument.substr(8);
+			window_names.push_back(wanted_window);
+		}
    
 		// X coordinate
-		if(currARG.substr(0,3)=="-x="  &&  currARG.length()>3)
-		{
-			repositionX = true;
-			istringstream iss(currARG.substr(3));
-			iss >> Xcoord;
-		};
+		if (argument.substr(0,3)=="-x="  &&  argument.length()>3) {
+			reposition_x = true;
+			istringstream iss(argument.substr(3));
+			iss >> coordinate_x;
+		}
 
 		// Y coordinate
-		if(currARG.substr(0,3)=="-y="  &&  currARG.length()>3)
-		{
-			repositionY = true;
-			istringstream iss(currARG.substr(3));
-			iss >> Ycoord;
-		};
+		if (argument.substr(0,3)=="-y="  &&  argument.length()>3) {
+			reposition_y = true;
+			istringstream iss(argument.substr(3));
+			iss >> coordinate_y;
+		}
 
 		// Windows mouse sensitivity
-		if(currARG.substr(0,13)=="-sensitivity="  &&  currARG.length()>13)
-		{
-			istringstream iss(currARG.substr(13));
+		if (argument.substr(0,13)=="-sensitivity="  &&  argument.length()>13) {
+			istringstream iss(argument.substr(13));
 			iss >> sensitivity;
-			if (sensitivity < 1) sensitivity=1;
-			if (sensitivity > 20) sensitivity=20;
-			SystemParametersInfo(SPI_GETMOUSESPEED, 0, &ORIGINALsensitivity, 0);
-		};
+			
+			if (sensitivity < 1) 
+				sensitivity = 1;
+				
+			if (sensitivity > 20) 
+				sensitivity = 20;
+				
+			SystemParametersInfo(SPI_GETMOUSESPEED, 0, &sensitivity_original, 0);
+		}
 
 		// Windows mouse acceleration (it's called 'precision' in main.cpl)
-		if(currARG.substr(0,14)=="-acceleration="  &&  currARG.length() > 14)
-		{
-			istringstream iss(currARG.substr(14));
+		if (argument.substr(0,14)=="-acceleration="  &&  argument.length() > 14) {
+			istringstream iss(argument.substr(14));
 			iss >> acceleration[2];
-			if (acceleration[2]!=0  &&  acceleration[2]!=1) acceleration[2]=-1;
-			SystemParametersInfo(SPI_GETMOUSE, 0, &ORIGINALacceleration, 0);
+			
+			if (acceleration[2]!=0  &&  acceleration[2]!=1) 
+				acceleration[2] = -1;
+				
+			SystemParametersInfo(SPI_GETMOUSE, 0, &acceleration_original, 0);
 			
 			// This requires array with 3 numbers
 			// Last number is option on/off
 			// Set first two numbers only if wanted setting is different than current
-			if (acceleration[2] >= 0  &&  ORIGINALacceleration[2] != acceleration[2])
-			{
-				if (ORIGINALacceleration[2] == 0)
+			if (acceleration[2] >= 0  &&  acceleration_original[2] != acceleration[2]) {
+				if (acceleration_original[2] == 0) {
 					//cout << "acceleration is disabled, user wants to enable it\n",
 					acceleration[0] = 6,
 					acceleration[1] = 10;
+				}
        
-				if (ORIGINALacceleration[2] == 1)
+				if (acceleration_original[2] == 1) {
 					//cout << "acceleration is enabled, user wants to disable it\n",
 					acceleration[0] = 0,
 					acceleration[1] = 0;
-			} 
-			else 
+				}
+			} else 
 				acceleration[2] = -1;
-		};
+		}
 
 		// OFP cursor sensitivity
-		if(currARG.substr(0,16)=="-OFPsensitivity="  &&  currARG.length() > 16)
-		{
-			istringstream iss(currARG.substr(16));
-			iss >> OFPsensitivity;
-			changeOFPsensitivity = true;
-		};
+		if (argument.substr(0,16)=="-ofpsensitivity="  &&  argument.length() > 16) {
+			istringstream iss(argument.substr(16));
+			iss >> ofp_sensitivity;
+			ofp_sensitivity_change = true;
+		}
 
 		// Center window on the screen
-		if(currARG == "-center") 
-			repositionCENTER = true;
+		if (argument == "-center") 
+			reposition_center = true;
 		
 		// Don't change cursor position
-		if(currARG == "-nosetcursor") 
-			repositionCURSOR = false;
+		if (argument == "-nosetcursor") 
+			reposition_cursor = false;
 		
 		// Quit lockmouse on game exit
-		if(currARG == "-quit") 
+		if (argument == "-quit") 
 			quit = true;
 		
 		// Minimize window right now
-		if(currARG == "-minimize")
-        {
+		if (argument == "-minimize") {
 			HWND lockwindow = FindWindow(NULL, "Lockmouse2");
+			
 			if (lockwindow) 
 				ShowWindow(lockwindow, SW_MINIMIZE);
-        };
-	};
+        }
+	}
 
 
 	// Display enabled parameters
-	cout << "Window: " << WANTED_WINDOW << endl;
+	cout << "Window: ";
+	for (int i=0; i<window_names.size(); i++) {
+		if (i !=0) cout << ", ";
+		cout << window_names[i];
+	}
+	cout << endl;
 
-	if (repositionCENTER)
+	if (reposition_center)
 		cout << "Center window\n";
-	else
-	{
-		if (repositionX) 
-			cout << "X: " << Xcoord << endl;
-		if (repositionY) 
-			cout << "Y: " << Ycoord << endl;
-	};
+	else {
+		if (reposition_x) 
+			cout << "X: " << coordinate_x << endl;
+			
+		if (reposition_y) 
+			cout << "Y: " << coordinate_y << endl;
+	}
 
-	if (!repositionCURSOR) 
+	if (!reposition_cursor) 
 		cout << "Keep cursor\n";
 		
-	if (ORIGINALsensitivity > 0) 
+	if (sensitivity_original > 0) 
 		cout << "Windows sensitivity: " << sensitivity << endl;
 		
 	if (acceleration[2] >= 0) 
 		cout << "Windows acceleration: " << acceleration[2] << endl;
 		
-	if (changeOFPsensitivity) 
-		cout << "OFP Sensitivity: " << OFPsensitivity << endl;
+	if (ofp_sensitivity_change) 
+		cout << "OFP Sensitivity: " << ofp_sensitivity << endl;
 		
 	if (quit) 
 		cout << "Quit with application\n";
@@ -358,27 +363,38 @@ int main(int argc, char *argv[])
 	
 	
 	// Define variables
-	HWND currenthwnd, hwnd=NULL;
-	char windowname[1024];
-	string CURRENT_WINDOW;
-    
-	POINT pt, ptOLD;
-	RECT nc, game, gameCLIENT, desktop;
+	HWND hwnd_current = NULL;
+	HWND hwnd         = NULL;
+	string current_window;
+	POINT pt;
+	POINT pt_old;
+	RECT nc;
+	RECT game;
+	RECT game_client;
+	RECT desktop;
 	GetWindowRect(GetDesktopWindow(), &desktop);
 
-	int borderL=0, borderR=0, borderB=0, borderT=0;
-	bool mouseClick=true, relaunchedGAME=true;
+	int border_left      = 0;
+	int border_right     = 0;
+	int border_bottom    = 0;
+	int border_top       = 0;
+	bool mouse_click     = true;
+	bool relaunched_game = true;
+	bool window_match    = false;
 	
 	// Control variables for parameters
-	bool checkCursor = true;
-	int changedAcceleration=-1, changedSensitivity=-1;
-	DWORD changedSensitivityPID=0, currentPID=0, lastWorkingPID=0;
+	bool check_cursor             = true;
+	int changed_acceleration      = -1;
+	int changed_sensitivity       = -1;
+	DWORD pid_changed_sensitivity = 0;
+	DWORD pid_current             = 0;
+	DWORD pid_last_working        = 0;
 	
 	if (sensitivity > 0) 
-		changedSensitivity = 0;
+		changed_sensitivity = 0;
 
 	if (acceleration[2] >= 0) 
-		changedAcceleration = 0;
+		changed_acceleration = 0;
     
 	
 
@@ -387,18 +403,26 @@ int main(int argc, char *argv[])
 
 
 	// Infinite loop until CTRL + C is pressed
-    while(true)
-    {
+    while (true) {
 		Sleep(20);
 
 		// Get active window
-		currenthwnd = GetForegroundWindow();
-		if (currenthwnd != NULL  &&  currenthwnd != hwnd)			// for a new window
-                hwnd = currenthwnd,
-				GetWindowText(hwnd, windowname, 1024),
-				GetWindowThreadProcessId(hwnd, &currentPID),
-				CURRENT_WINDOW = string(windowname),
-				transform(CURRENT_WINDOW.begin(), CURRENT_WINDOW.end(), CURRENT_WINDOW.begin(), ::tolower);
+		hwnd_current = GetForegroundWindow();
+		
+		if (hwnd_current != NULL  &&  hwnd_current != hwnd) {			// for a new window
+		    window_match = false;
+            hwnd         = hwnd_current;
+            char window_char[1024];
+            
+			GetWindowText(hwnd, window_char, 1024),
+			GetWindowThreadProcessId(hwnd, &pid_current),
+			current_window = string(window_char),
+			transform(current_window.begin(), current_window.end(), current_window.begin(), ::tolower);
+			
+			for (int i=0; i<window_names.size() && !window_match; i++)
+				if (current_window == window_names[i])
+					window_match = true;
+		}
 
 
 
@@ -406,57 +430,54 @@ int main(int argc, char *argv[])
 
 
 		// If active window isn't what we wanted OR if it's explorer ---------------------------------------
-		if (CURRENT_WINDOW != WANTED_WINDOW  ||  !IsNotExplorer(currentPID))
-		{
+		if (!window_match  ||  IsExplorer(pid_current)) {
 			// Unlock cursor and reset click var
 			ClipCursor(NULL);
-			mouseClick = true;
+			mouse_click = true;
 			
 			// Bring back cursor to the original position
-			if (repositionCURSOR && !checkCursor) 
-				checkCursor = true,
-				SetCursorPos(ptOLD.x, ptOLD.y);
+			if (reposition_cursor && !check_cursor) {
+				check_cursor = true;
+				SetCursorPos(pt_old.x, pt_old.y);
+			}
 			
 			// Bring back original mouse sensitivity
-			if (changedSensitivity == 1)
-				if (SystemParametersInfo(SPI_SETMOUSESPEED, 0, (void*)ORIGINALsensitivity, 0) == 1)
-					changedSensitivity = 0;
-					/*cout<<"brought back sens\n";*/
+			if (changed_sensitivity == 1 && SystemParametersInfo(SPI_SETMOUSESPEED, 0, (void*)sensitivity_original, 0) == 1) {
+				changed_sensitivity = 0;
+				//cout<<"brought back sens\n";
+			}
 			
 			// Bring back original mouse acceleration
-			if (changedAcceleration == 1)
-				if (SystemParametersInfo(SPI_SETMOUSE, 0, (void*)ORIGINALacceleration, 0) == 1) 
-					changedAcceleration = 0; 
-					/*cout<<"brought back acc\n";*/
+			if (changed_acceleration == 1 && SystemParametersInfo(SPI_SETMOUSE, 0, (void*)acceleration_original, 0) == 1) {
+				changed_acceleration = 0; 
+				//cout<<"brought back acc\n";
+			}
             
 			// Check if application still exists
-			if (lastWorkingPID != 0)
-				if (!IsProcessRunning(lastWorkingPID))
-				{
-					relaunchedGAME = true;
-					
-					// if user passed -quit
-					if (quit) 
-					{
-						// If game is flashpoint
-						if (WANTED_WINDOW=="operation flashpoint"  ||  WANTED_WINDOW=="cold war assault")
-						{
-							// if gameRestart is not running then quit
-							if (findProcess("gameRestart.exe")==0) 
-								return 1; 
-							else 
-								lastWorkingPID = 0, 
-								Sleep(1000);
+			if (pid_last_working != 0  &&  !IsProcessRunning(pid_last_working)) {
+				relaunched_game = true;
+				
+				// if user passed -quit
+				if (quit) {
+					// If game is flashpoint
+					if (current_window=="operation flashpoint"  ||  current_window=="cold war assault"  ||  current_window=="arma resistance") {
+						// if gameRestart is not running then quit
+						if (findProcess("gameRestart.exe") == 0) 
+							return 1; 
+						else {
+							pid_last_working = 0;
+							Sleep(1000);
 						}
+					} else {
 						// If it's not flashpoint then just quit
-						else
-							/*cout<<"app exit",*/
-							return 1;
-					};
-				};
+						//cout << "app exit";
+						return 1;
+					}
+				}
+			}
             
 			continue;
-		};
+		}
 		// -------------------------------------------------------------------------------------------------
 
 
@@ -467,71 +488,63 @@ int main(int argc, char *argv[])
 
 
 		// Save process ID
-		lastWorkingPID = currentPID;
+		pid_last_working = pid_current;
 		
 		
 		// Change windows mouse sensitivity -------------------------------------------
-		if (changedSensitivity == 0)
-			if (SystemParametersInfo(SPI_SETMOUSESPEED, 0, (void*)sensitivity, 0) == 1)
-				changedSensitivity = 1; 
-				/*cout<<"changed sens\n";*/
-		// --------------------------------------------------------------------------
-
+		if (changed_sensitivity == 0  &&  SystemParametersInfo(SPI_SETMOUSESPEED, 0, (void*)sensitivity, 0) == 1) {
+			changed_sensitivity = 1; 
+			//cout << "changed sens\n";
+		}
 		
 		// Change mouse acceleration --------------------------------------------------
-		if (changedAcceleration == 0)
-			if (SystemParametersInfo(SPI_SETMOUSE, 0, (void*)acceleration, 0) == 1)
-				changedAcceleration = 1; 
-				/*cout<<"changed acc\n";*/
-		// --------------------------------------------------------------------------
-
+		if (changed_acceleration == 0  &&  SystemParametersInfo(SPI_SETMOUSE, 0, (void*)acceleration, 0) == 1) {
+			changed_acceleration = 1; 
+			//cout<<"changed acc\n";
+		}
 		
 		// Change mouse speed in OFP --------------------------------------------------
-		if (changeOFPsensitivity  &&  currentPID != changedSensitivityPID)
-			if (slowDownMouse(currentPID, CURRENT_WINDOW, OFPsensitivity))
-				changedSensitivityPID = currentPID;
-		// --------------------------------------------------------------------------
+		if (ofp_sensitivity_change  &&  pid_current != pid_changed_sensitivity  &&  slowDownMouse(pid_current, current_window, ofp_sensitivity)) {
+			pid_changed_sensitivity = pid_current;
+		}
 
 
 		// Change window position -----------------------------------------------------
-		if (relaunchedGAME)
-		{
-			relaunchedGAME = false;
+		if (relaunched_game) {
+			relaunched_game = false;
 			GetWindowRect(hwnd, &game);
-			GetClientRect(hwnd, &gameCLIENT);
+			GetClientRect(hwnd, &game_client);
 
 			// Calculate window border size
-			borderL = abs((game.right - game.left) - gameCLIENT.right) / 2;
-			borderR = borderL;
-			borderB = borderL;
-			borderT = abs((game.bottom - game.top) - gameCLIENT.bottom) - borderL;
+			border_left   = abs((game.right - game.left) - game_client.right) / 2;
+			border_right  = border_left;
+			border_bottom = border_left;
+			border_top    = abs((game.bottom - game.top) - game_client.bottom) - border_left;
 			
-			/*cout << "borderL: " <<  borderL << endl;
-			cout << "borderR: " <<  borderR << endl;
-			cout << "borderB: " <<  borderB << endl;
-			cout << "borderT: " <<  borderT << endl;*/
+			/*cout << "border_left: " <<  border_left << endl;
+			cout << "border_right: " <<  border_right << endl;
+			cout << "border_bottom: " <<  border_bottom << endl;
+			cout << "border_top: " <<  border_top << endl;*/
 
-			if (repositionCENTER || repositionX || repositionY)
-			{
+			if (reposition_center || reposition_x || reposition_y) {
 				// Reset coordinates if not set
-				if (!repositionX) 
-					Xcoord = -borderL;
+				if (!reposition_x) 
+					coordinate_x = -border_left;
 					
-				if (!repositionY) 
-					Ycoord = -borderT;
+				if (!reposition_y) 
+					coordinate_y = -border_top;
 				
 				// Calculate coordinates to center window
-				if (repositionCENTER)
-				{
+				if (reposition_center) {
 					// client.right is window width and client.bottom is window height
-					Xcoord = ((desktop.right - gameCLIENT.right) / 2) - borderL;
-					Ycoord = ((desktop.bottom - gameCLIENT.bottom) / 2) - borderT;
+					coordinate_x = ((desktop.right - game_client.right) / 2) - border_left;
+					coordinate_y = ((desktop.bottom - game_client.bottom) / 2) - border_top;
 					
-					/*cout << "Xcoord: " << Xcoord << endl;
-					cout << "Ycoord: " << Ycoord << endl << endl;*/
-				};
+					/*cout << "coordinate_x: " << coordinate_x << endl;
+					cout << "coordinate_y: " << coordinate_y << endl << endl;*/
+				}
 				
-				SetWindowPos(hwnd, 0, Xcoord, Ycoord, 0, 0, SWP_NOSIZE);
+				SetWindowPos(hwnd, 0, coordinate_x, coordinate_y, 0, 0, SWP_NOSIZE);
 				Sleep(10);
 
 				/*GetWindowRect(hwnd, &game);
@@ -540,20 +553,19 @@ int main(int argc, char *argv[])
 				cout << "game.right: " << game.right << endl;
 				cout << "game.top: " << game.top << endl;
 				cout << "game.bottom: " << game.bottom << endl;
-				cout << "gameCLIENT.left: " << gameCLIENT.left << endl;
-				cout << "gameCLIENT.right: " << gameCLIENT.right << endl;
-				cout << "gameCLIENT.top: " << gameCLIENT.top << endl;
-				cout << "gameCLIENT.bottom: " << gameCLIENT.bottom << endl;*/
+				cout << "game_client.left: " << game_client.left << endl;
+				cout << "game_client.right: " << game_client.right << endl;
+				cout << "game_client.top: " << game_client.top << endl;
+				cout << "game_client.bottom: " << game_client.bottom << endl;*/
 				
 				continue;
-			};
-		};// --------------------------------------------------------------------------
+			}
+		}
 
 
 		// Change cursor position -----------------------------------------------------
-		if (repositionCURSOR && checkCursor)
-		{
-			GetCursorPos(&ptOLD);
+		if (reposition_cursor && check_cursor) {
+			GetCursorPos(&pt_old);
 			GetWindowRect(hwnd, &game);
 			
 			// For some reason the window is repositioned if you activate it by clicking on the border
@@ -561,22 +573,22 @@ int main(int argc, char *argv[])
             if 
 			(
 				// If inside game window (not on borders)
-				ptOLD.x > game.left+borderL && 
-				ptOLD.x < game.right-borderR &&
-				ptOLD.y > game.top+borderT &&
-				ptOLD.y < game.bottom-borderB
+				pt_old.x > game.left+border_left && 
+				pt_old.x < game.right-border_right &&
+				pt_old.y > game.top+border_top &&
+				pt_old.y < game.bottom-border_bottom
 				||
 				// OR outside game window
-				ptOLD.x < game.left ||
-				ptOLD.x > game.right ||
-				ptOLD.y < game.top ||
-				ptOLD.y > game.bottom
+				pt_old.x < game.left ||
+				pt_old.x > game.right ||
+				pt_old.y < game.top ||
+				pt_old.y > game.bottom
             )
 				// then set mouse cursor in the lower right corner			
-				SetCursorPos(game.right-borderR-1, game.bottom-borderB-1);
+				SetCursorPos(game.right-border_right-1, game.bottom-border_bottom-1);
 
-			checkCursor = false;
-		};// --------------------------------------------------------------------------
+			check_cursor = false;
+		}
 
 		
 
@@ -589,54 +601,47 @@ int main(int argc, char *argv[])
 
 
 		// If CTRL+A isn't pressed
-		if (GetAsyncKeyState(VK_CONTROL) >= 0  ||  GetAsyncKeyState('A') >= 0)
-		{
+		if (GetAsyncKeyState(VK_CONTROL) >= 0  ||  GetAsyncKeyState('A') >= 0) {
 			GetWindowRect(hwnd, &game);	
 			GetCursorPos(&pt);
 			
-			int threads = 0;
-			bool isOFP = WANTED_WINDOW=="operation flashpoint"  ||  WANTED_WINDOW=="cold war assault";
-			if (isOFP) 
-				threads = countThreads(currentPID);
+			bool is_ofp = current_window=="operation flashpoint"  ||  current_window=="cold war assault" || current_window=="arma resistance";
             
 			// If cursor is in game window
             if 
 			(
-				pt.x > game.left+borderL && 
-				pt.x < game.right-borderR &&
-				pt.y > game.top+borderT &&
-				pt.y < game.bottom-borderB &&
-				(!isOFP  ||  isOFP && threads>=5)
+				pt.x > game.left+border_left && 
+				pt.x < game.right-border_right &&
+				pt.y > game.top+border_top &&
+				pt.y < game.bottom-border_bottom &&
+				(!is_ofp  ||  is_ofp && countThreads(pid_current)>=5)
 				// If it's not OFP  or OFP and has at least 5 threads
             )
             {
 				// Then block it
-				nc.top      = pt.y;
-				nc.left     = pt.x;
-				nc.right    = pt.x+1;
-				nc.bottom   = pt.y+1;
+				nc.top    = pt.y;
+				nc.left   = pt.x;
+				nc.right  = pt.x+1;
+				nc.bottom = pt.y+1;
 				ClipCursor(&nc);
 				
 				// Simulate a single mouse click to activate that window
-				if (mouseClick)
-				{
-					mouseClick = false;
+				if (mouse_click) {
+					mouse_click = false;
 					SetCapture(hwnd);
 					PostMessage(hwnd, WM_LBUTTONDOWN, 0, MAKELPARAM(pt.x, pt.y));
 					Sleep(5);
 					PostMessage(hwnd, WM_LBUTTONUP, 0, MAKELPARAM(pt.x, pt.y));
 					ReleaseCapture();
-				};
-            };
-		}
-		else 
-		{
+				}
+            }
+		} else {
 			// Otherwise release cursor
 			ClipCursor(NULL);
-			GetCursorPos(&ptOLD);
-		};
-		
-    };
+			GetCursorPos(&pt_old);
+		}
+    }
+    
 	return 0;
 }
 
