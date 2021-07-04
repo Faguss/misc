@@ -1,6 +1,6 @@
-// OFPTextureFixer by Faguss (ofp-faguss.com)
+// OFPTextureFixer v1.01 by Faguss (ofp-faguss.com)
 // Scan for paa/pac file and read their width and height
-// If incorrect then resize with ImageMagick and convert with TexView
+// If incorrect then resize with ImageMagick/IrfanView and convert with TexView
 
 #include <sstream>
 #include <windows.h>
@@ -51,6 +51,7 @@ enum PROGRAM_PATHS {
 	PATH_199_STEAM,
 	PATH_199,
 	PATH_196,
+	PATH_IRFANVIEW,
 	PATH_NUM
 };
 
@@ -171,7 +172,7 @@ int DeleteDirectory(const string &refcstrRootDirectory, bool bDeleteSubdirectori
 	return 0;
 }
 
-int BrowseDirectory(string input_path, string input_pattern, vector<string> &file_log, vector<string> &addon_list, vector<string> &program_path, int &texture_files_num) {	
+int BrowseDirectory(string input_path, string input_pattern, vector<string> &file_log, vector<string> &addon_list, vector<string> &program_path, int &texture_files_num, TCHAR *current_directory) {	
 	string search_pattern = input_path + (!input_path.empty() ? "\\" : "") + input_pattern;
 	
 	HANDLE hFile;
@@ -199,7 +200,7 @@ int BrowseDirectory(string input_path, string input_pattern, vector<string> &fil
 
 			if (is_dir) {
 				if (current_file != "__textures_copy")
-					BrowseDirectory(current_file_path, input_pattern, file_log, addon_list, program_path, texture_files_num);
+					BrowseDirectory(current_file_path, input_pattern, file_log, addon_list, program_path, texture_files_num, current_directory);
 			} else 
 			if (Equals(file_extension,"paa") || Equals(file_extension,"pac")) {
 
@@ -370,9 +371,16 @@ int BrowseDirectory(string input_path, string input_pattern, vector<string> &fil
 						system(command_line.c_str());
 						
 						// Use imagemagick to resize image
-						if (!program_path[PATH_MAGICK].empty()) {
-							command_line = "\"\"" + program_path[PATH_MAGICK] + "\\magick.exe\" \"" + new_file_name + "tga\" -resize " + Int2Str(width) + "x" + Int2Str(height) + "! \"" + new_file_name + "tga\"\"";
-							system(command_line.c_str());
+						if (!program_path[PATH_MAGICK].empty() || !program_path[PATH_IRFANVIEW].empty()) {
+							if (!program_path[PATH_MAGICK].empty()) {
+								command_line = "\"\"" + program_path[PATH_MAGICK] + "\\magick.exe\" \"" + new_file_name + "tga\" -resize " + Int2Str(width) + "x" + Int2Str(height) + "! \"" + new_file_name + "tga\"\"";
+								system(command_line.c_str());
+							} else						
+								if (!program_path[PATH_IRFANVIEW].empty()) {
+									string full_path = (string)current_directory + "\\" + new_file_name;
+									command_line = "\"\"" + program_path[PATH_IRFANVIEW] + "\" \"" + full_path + "tga\" /resize=(" + Int2Str(width) + "," + Int2Str(height) + ") /resample \"/convert=" + full_path + "tga\"\"";
+									system(command_line.c_str());								
+								}
 							
 							// Use pal2pace to convert to paa
 							command_line  = "\"\"" + program_path[PATH_PAL2PACE] + "\\Pal2PacE.exe\" \"" + new_file_name + "tga\" \"" + new_file_name + "paa\"\"";
@@ -461,7 +469,8 @@ int main(int argc, char *argv[])
 		"SOFTWARE\\Mikero\\ExtractPbo",
 		"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Steam App 65790",
 		"SOFTWARE\\Bohemia Interactive Studio\\ColdWarAssault",
-		"SOFTWARE\\Codemasters\\Operation Flashpoint"
+		"SOFTWARE\\Codemasters\\Operation Flashpoint",
+		"SOFTWARE\\IrfanView\\shell\\open\\command"
 	};
 	
 	string registry_keys[] = {
@@ -471,7 +480,8 @@ int main(int argc, char *argv[])
 		"exe",
 		"InstallLocation",
 		"MAIN",
-		"MAIN"
+		"MAIN",
+		""
 	};
 	
 	REGSAM registry_flags[] = {
@@ -481,14 +491,15 @@ int main(int argc, char *argv[])
 		0,
 		0,
 		0,
-		0
+		0,
+		KEY_WOW64_64KEY
 	};
 	
 	vector<string> program_path;
 	
 	for (int i=0; i<PATH_NUM; i++) {
 		program_path.push_back("");
-		
+
 		HKEY key_handle = 0;
 		char path[1024] = "";
 		DWORD path_size = sizeof(path);
@@ -497,13 +508,17 @@ int main(int argc, char *argv[])
 		if (result == ERROR_SUCCESS) {
 			DWORD data_type = REG_SZ;
 
-			if (RegQueryValueEx(key_handle, registry_keys[i].c_str(), 0, &data_type, (BYTE*)path, &path_size) == ERROR_SUCCESS)
+			if (RegQueryValueEx(key_handle, registry_keys[i].c_str(), 0, &data_type, (BYTE*)path, &path_size) == ERROR_SUCCESS) {
 				program_path[i] = (string)path;
+				
+				if (program_path[i][0] == '"' && program_path[i][program_path[i].length()-1]=='"')
+					program_path[i] = program_path[i].substr(1, program_path[i].length()-2);
+			}
 		}
 
 		RegCloseKey(key_handle);
 	}
-	
+
 	
 
 	// Replace TexView2 config
@@ -612,12 +627,14 @@ int main(int argc, char *argv[])
 	
 	
 	// Run file search
+	TCHAR current_directory[MAX_PATH];
+	GetCurrentDirectory(MAX_PATH, current_directory);
 	vector<string> file_log;
 	vector<string> addon_list;
 	int texture_files_num = 0;
-	
+
 	DeleteDirectory("__textures_copy");
-	BrowseDirectory(input_path, input_pattern, file_log, addon_list, program_path, texture_files_num);
+	BrowseDirectory(input_path, input_pattern, file_log, addon_list, program_path, texture_files_num, current_directory);
 	
 	
 	
