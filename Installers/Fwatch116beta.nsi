@@ -90,7 +90,7 @@ OutFile "fwatch116beta_installer.exe"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "img\Installer_Welcome.bmp"
 
 !define MUI_WELCOMEPAGE_TITLE "Fwatch 1.16 Beta"
-!define MUI_WELCOMEPAGE_TEXT "This will install Fwatch for the$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\tArmA: Resistance 2.01$\n$\n$\nOFP Aspect Ratio pack 2.07 included"
+!define MUI_WELCOMEPAGE_TEXT "This will install Fwatch extension for the$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\tArmA: Resistance 2.01$\n$\n$\nOFP Aspect Ratio pack 2.07 included$\n$\n$\nofp-faguss.com/fwatch"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "img\Installer_Header.bmp"
 !define MUI_HEADERIMAGE_RIGHT
@@ -599,8 +599,7 @@ Function AspectSelection
 	${StrFilter} "$R1" "1" "" "" $R1
 
 	; Divide width by height
-	FloatOp::Autor $0
-	FloatOp::D $R0 $R1 $0
+	Math::Script "r0 = f(R0) / f(R1)"
 
 	; Assign aspect ratio based on the result
 	StrCmp $0 "1.33333" 0 +3
