@@ -1,4 +1,4 @@
-; NSIS Script for Set-Pos-In-Game installation v1.49
+; NSIS installation script for the Set-Pos-In-Game script for OFP
 
 
 ;------Header---------------
@@ -10,22 +10,20 @@
 SetCompressor /solid lzma
 ShowInstDetails show
 RequestExecutionLevel admin
-;BrandingText "NSIS script by Faguss (ofp-faguss.com)"
 InstallDir $INSTDIR
-;InstallDirRegKey HKLM "Software\Codemasters\Operation Flashpoint" "MAIN"
 
 
 
 ;------Strings--------------
 
 VIAddVersionKey "ProductName" "SPIG Installer"
-VIAddVersionKey "Comments" "Script for Operation Flashpoint: Resistance 1.96 and ArmA: Cold War Assault 1.99"
+VIAddVersionKey "Comments" "Script for the Operation Flashpoint: Resistance 1.96 and ArmA: Cold War Assault 1.99"
 VIAddVersionKey "CompanyName" "ofp-faguss.com"
 VIAddVersionKey "LegalTrademarks" "Public Domain"
 VIAddVersionKey "LegalCopyright" "Public Domain"
-VIAddVersionKey "FileDescription" "Install SPIG script"
-VIAddVersionKey "FileVersion" "1.4.9.0"
-VIProductVersion "1.4.9.0"
+VIAddVersionKey "FileDescription" "Install SPIG script for OFP"
+VIAddVersionKey "FileVersion" "1.5.1.0"
+VIProductVersion "1.5.1.0"
 
 
 
@@ -45,13 +43,13 @@ OutFile "set-pos-in-game.exe"
 !define MUI_ICON "img\orange-install.ico"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "img\Installer_Welcome.bmp"
 
-!define MUI_WELCOMEPAGE_TITLE "Set-Pos-In-Game v1.49"
-!define MUI_WELCOMEPAGE_TEXT "This will install Set-Pos-In-Game script for$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\tArmA: Cold War Assault 1.99$\n$\n$\nFwatch 1.16 included."
+!define MUI_WELCOMEPAGE_TITLE "Set-Pos-In-Game v1.51"
+!define MUI_WELCOMEPAGE_TEXT "This will install Set-Pos-In-Game script for the$\n$\n$\tOperation Flashpoint: Resistance 1.96$\n$\tArmA: Cold War Assault 1.99$\n$\tArmA: Resistance 2.01$\n$\n$\nFwatch 1.16 included$\n$\n$\nofp-faguss.com/set-pos-in-game"
 !define MUI_HEADERIMAGE
 !define MUI_HEADERIMAGE_BITMAP "img\Installer_Header2.bmp"
 !define MUI_HEADERIMAGE_RIGHT
 !define MUI_DIRECTORYPAGE_TEXT_TOP "Make sure this path leads to the game directory.$\n$\nGame should have been run at least once."
-;!define MUI_FINISHPAGE_NOAUTOCLOSE
+!define MUI_FINISHPAGE_NOAUTOCLOSE
 !define MUI_FINISHPAGE_RUN $exename
 !define MUI_FINISHPAGE_RUN_PARAMETERS $parameters
 !define MUI_FINISHPAGE_RUN_TEXT $runtext
@@ -127,108 +125,22 @@ Function .onVerifyInstDir
 FunctionEnd
 
 
-;------Sections------------
-
 Section 
+	SetOverwrite ifnewer
+	
+	; Set string variables for the end
+	StrCpy $finishpagetext ""
+	StrCpy $parameters " -nosplash -mod=Set-Pos-In-Game"
+	StrCpy $runtext "Launch game with the Fwatch"
+	StrCpy $exename "fwatch.exe"
 
-; Set some string variables =======================================
-
-  StrCpy $finishpagetext ""
-  StrCpy $parameters " -nosplash -gamespy=master.ofpisnotdead.com"
-  StrCpy $runtext "Launch game with the Fwatch"
-  StrCpy $exename "fwatch.exe"
-
-
-
-
-; Copy SPIG =======================================================
-
+	; Copy SPIG
 	SetOutPath "$INSTDIR\Set-Pos-In-Game\"
 	File /r "Set-Pos-In-Game\*"
-
   
-  
-
-; Copy SPIG demo missions =========================================
-
-	SetOutPath "$INSTDIR"
-	SetOverwrite ifnewer
-	
-	; If there's no "users" directory then copy to SP and MP missions
-	IfFileExists "$INSTDIR\Users\*.*" getUser 0
-		nouser:
-		DetailPrint "NO USER"
-		CreateDirectory "$INSTDIR\Missions\SPIG"
-		SetOutPath "$INSTDIR\Missions\SPIG\"
-		File /r "missions\*"
-		StrCpy $finishpagetext "$finishpagetext$\n$\nDemos were copied to Missions\"
-	Goto endDemos
-
-
-	
-	; Read key from registry about the current user
-	getUser:
-	DetailPrint "getUser"
-	StrCpy $7 ""
-	IfFileExists $INSTDIR\flashpoint.cfg 0 +2
-		ReadRegStr $7 HKCU "Software\Codemasters\Operation Flashpoint" "Player Name"
-	IfFileExists $INSTDIR\ColdWarAssault.cfg 0 +2
-		ReadRegStr $7 HKCU "Software\Bohemia Interactive Studio\ColdWarAssault" "Player Name"
-	
-	DetailPrint $7
-	${If} $7 != ""
-		IfFileExists "$INSTDIR\Users\$7\*.*" userDemos 0
-		StrCpy $7 ""
-	${EndIf}
-	
-	
-	; If no key then find first folder
-	FindFirst $0 $1 "$INSTDIR\Users\*"
-	loop:
-		DetailPrint $1
-		StrCmp $1 "" done
-		StrCmp $1 "." next
-		StrCmp $1 ".." next
-		DetailPrint "check: $1"
-		IfFileExists "$INSTDIR\Users\$1\*.*" 0 next
-			StrCpy $7 $1
-			DetailPrint "found: $7"
-			Goto done
-		next:
-		FindNext $0 $1
-	Goto loop
-	done:
-	FindClose $0
-
-	DetailPrint $7
-	; No folder
-	StrCmp $7 "" nouser
-  
-
-	userDemos:
-		DetailPrint "USER DEMOS"
-		CreateDirectory "$INSTDIR\Users\$7\missions"
-		SetOutPath "$INSTDIR\Users\$7\missions\"
-		DetailPrint "$INSTDIR\Users\$7\missions\"
-		File /r "missions\*"
-		StrCpy $finishpagetext "$finishpagetext$\n$\nDemos were copied to Users\$7\missions"
-	
-	endDemos:
+	; Copy Fwatch
 	SetOutPath "$INSTDIR\"
-
-	
-	
-
-  
-
-  
-; Install Fwatch if it's missing or if it's old version ===========
-
-	SetOverwrite ifnewer
-	SetOutPath "$INSTDIR\"
-	File /r "data\*"
-	
-; Check game executable ===========================================
+	File /r "Fwatch116\*"
 
 	; Check if this is Steam version
 	StrCmp $cfgName "ArmAResistance.cfg" notfound 0
@@ -240,28 +152,21 @@ Section
 			GoTo allDone
 		notfound:
 		
-  IfFileExists "$INSTDIR\flashpointresistance.exe" allDone 0
-  IfFileExists "$INSTDIR\ofp.exe" allDone 0
-  IfFileExists "$INSTDIR\flashpointbeta.exe" allDone 0
-  IfFileExists "$INSTDIR\operationflashpoint.exe" allDone 0
-  IfFileExists "$INSTDIR\operationflashpointbeta.exe" allDone 0
-  IfFileExists "$INSTDIR\ColdWarAssault.exe" allDone 0
-  IfFileExists "$INSTDIR\ArmAResistance.exe" allDone 0
-    StrCpy $parameters "$parameters -nolaunch "
-    StrCpy $runtext "Launch Fwatch"
-    StrCpy $finishpagetext "$finishpagetext$\n$\nYou will have to start the game manually."
+	IfFileExists "$INSTDIR\flashpointresistance.exe" allDone 0
+	IfFileExists "$INSTDIR\ofp.exe" allDone 0
+	IfFileExists "$INSTDIR\flashpointbeta.exe" allDone 0
+	IfFileExists "$INSTDIR\operationflashpoint.exe" allDone 0
+	IfFileExists "$INSTDIR\operationflashpointbeta.exe" allDone 0
+	IfFileExists "$INSTDIR\ColdWarAssault.exe" allDone 0
+	IfFileExists "$INSTDIR\ArmAResistance.exe" allDone 0
+		StrCpy $parameters "$parameters -nolaunch "
+		StrCpy $runtext "Launch Fwatch"
+		StrCpy $finishpagetext "$finishpagetext$\n$\nYou will have to start the game manually."
 
-  allDone:
-  ;if empty string then change it to 'all done'
-  StrCmp $finishpagetext "" +1 +2
-    StrCpy $finishpagetext "All Done"
+	allDone:
+	;if empty string then change it to 'all done'
+	StrCmp $finishpagetext "" +1 +2
+		StrCpy $finishpagetext "All Done"
 	
-
 	SetOutPath "$INSTDIR\"
-	
 SectionEnd
-
-
-
-
-
