@@ -788,7 +788,8 @@ if (!empty($_GET) && empty($_GET[BACK_TO_FORM_VAR])) {
 				break;
 				
 			case "Minimum Age" :
-				$value = get_input_var(str_replace(" ","",strtolower($title)))."+ y.o.";
+				$value = get_input_var(str_replace(" ","",strtolower($title)));
+				if (!empty($value)) $value.="+ y.o.";
 				break;
 			
 			case "Year Released Range" : 
