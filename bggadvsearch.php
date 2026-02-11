@@ -1,5 +1,5 @@
 <?php
-// Search in multiple users BGG collections by Faguss
+// Search in multiple users BGG collections by Faguss (11.02.2026)
 define("PAGE_TITLE","BGG Multi-User Advanced Search");
 define("ENABLE_DOWNLOAD",1);
 define("SLEEP_TIME_BETWEEN_USERS",1);
@@ -469,7 +469,14 @@ function DOMinnerHTML(DOMNode $element) {
 	foreach($element->childNodes as $child)
 		$innerHTML .= $element->ownerDocument->saveHTML($child);
 	return $innerHTML; 
-} 
+}
+
+function sleep_precise($input) {
+	$fraction = fmod($input,1);
+	$seconds = $input - $fraction;
+	sleep($seconds);
+	usleep($fraction * 1000000);
+}
 
 function process_downloaded_bgg_search($input_html, $input_username, &$output, &$user_details) {
 	$game_count = 0;
@@ -730,7 +737,7 @@ if (!empty($_GET) && empty($_GET[BACK_TO_FORM_VAR])) {
 				$page_count = 0;
 				
 				if ($index != 0) 
-					sleep(SLEEP_TIME_BETWEEN_USERS);
+					sleep_precise(SLEEP_TIME_BETWEEN_USERS);
 				
 				do {
 					$page_content = url_get_contents($url_for_current_user);
@@ -746,7 +753,7 @@ if (!empty($_GET) && empty($_GET[BACK_TO_FORM_VAR])) {
 							$end_pos = strpos($page_content, "\"", $start_pos);
 							if ($end_pos !== FALSE) {
 								$url_for_current_user = DOWNLOAD_URL_DOMAIN . html_entity_decode(substr($page_content, $start_pos, $end_pos-$start_pos));
-								sleep(SLEEP_TIME_BETWEEN_USERS/10);
+								sleep_precise(SLEEP_TIME_BETWEEN_USERS/10);
 							}
 						}
 					}
@@ -789,7 +796,7 @@ if (!empty($_GET) && empty($_GET[BACK_TO_FORM_VAR])) {
 				
 			case "Minimum Age" :
 				$value = get_input_var(str_replace(" ","",strtolower($title)));
-				if (!empty($value)) $value.="+ y.o.";
+				if (!empty($value)) $value.="+";
 				break;
 			
 			case "Year Released Range" : 
