@@ -509,7 +509,7 @@ function process_downloaded_bgg_search($input_html, $input_username, &$output, &
 
 		$column_index = 0;
 		$current_game = [];
-		$current_game_title = "";
+		$current_game_key = "";
 		
 		foreach($row->childNodes as $column) {
 			if ($column->nodeName == "td") {
@@ -520,9 +520,10 @@ function process_downloaded_bgg_search($input_html, $input_username, &$output, &
 					$a = $div->childNodes[1];
 					$a_html = $div->ownerDocument->saveHTML($a);
 					
-					$current_game_title = $a->nodeValue;
+					$game_title = $a->nodeValue;
 					$year = isset($div->childNodes[3]->nodeValue) ? $div->childNodes[3]->nodeValue : "";
 					$description = isset($column->childNodes[5]) ? trim($column->childNodes[5]->nodeValue) : "";
+					$current_game_key = $game_title.$year;
 					
 					$url = "";
 					$to_find = 'href="';
@@ -534,7 +535,7 @@ function process_downloaded_bgg_search($input_html, $input_username, &$output, &
 							$url = substr($a_html, $pos, $pos2-$pos);
 					}
 					
-					$value_to_copy = "<div><a class='game_title' href='".DOWNLOAD_URL_DOMAIN."$url' target='_blank'>$current_game_title</a> <span class='game_info'>$year</span></div><p class='game_info' style='margin: 2px 0 0 0;'>$description</p>";					
+					$value_to_copy = "<div><a class='game_title' href='".DOWNLOAD_URL_DOMAIN."$url' target='_blank'>$game_title</a> <span class='game_info'>$year</span></div><p class='game_info' style='margin: 2px 0 0 0;'>$description</p>";
 				}
 				
 				if ($column_index == array_search("Thumbnail", SEARCH_RESULT_TABLE_COLUMNS)) {
@@ -556,20 +557,22 @@ function process_downloaded_bgg_search($input_html, $input_username, &$output, &
 			}
 		}
 		
-		if (array_key_exists($current_game_title,$output)) {
-			$output[$current_game_title]["Status"][] = $input_username;
-		} else {
-			$output[$current_game_title] = [
-				"Rank"        => $current_game["Rank"],
-				"Thumbnail"   => $current_game["Thumbnail"],
-				"Title"       => $current_game["Title"],
-				"Avg Rating"  => $current_game["Avg Rating"],
-				"Status"      => [$input_username],
-			];
+		if (!empty($current_game_key)) {
+			if (array_key_exists($current_game_key,$output)) {
+				$output[$current_game_key]["Status"][] = $input_username;
+			} else {
+				$output[$current_game_key] = [
+					"Rank"        => $current_game["Rank"],
+					"Thumbnail"   => $current_game["Thumbnail"],
+					"Title"       => $current_game["Title"],
+					"Avg Rating"  => $current_game["Avg Rating"],
+					"Status"      => [$input_username],
+				];
+			}
+			
+			$game_count++;
+			$user_details[$input_username]["game_count"]++;
 		}
-		
-		$game_count++;
-		$user_details[$input_username]["game_count"]++;
 	}
 	
 	return $game_count;
